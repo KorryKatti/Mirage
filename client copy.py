@@ -5,7 +5,7 @@ import json
 import os
 
 # Load user info from JSON file
-with open('userinfo.json', 'r') as file:
+with open('userinfoo.json', 'r') as file:
     user_info = json.load(file)
 
 username = user_info['username']

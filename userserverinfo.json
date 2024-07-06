@@ -1,0 +1,14 @@
+{
+    "users": [
+        {
+            "username": "user1",
+            "email": "user1@example.com",
+            "secret_key": "abc123"
+        },
+        {
+            "username": "user2",
+            "email": "user2@example.com",
+            "secret_key": "def456"
+        }
+    ]
+}

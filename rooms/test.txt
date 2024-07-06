@@ -1,0 +1,8 @@
+user1: hello
+user2: hi
+user1: sup dude
+user2: nmu
+user1: lol
+user2: seriosuly lol ?
+user1: yeah so whats wrong
+user2: nothiong
