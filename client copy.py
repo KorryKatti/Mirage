@@ -5,7 +5,7 @@ import json
 import os
 
 # Load user info from JSON file
-with open('userinfoo.json', 'r') as file:
+with open('userinfo.json', 'r') as file:
     user_info = json.load(file)
 
 username = user_info['username']
@@ -16,7 +16,6 @@ secret_key = user_info['secret_key']
 server_url = 'http://127.0.0.1:5000'
 
 current_room = None
-last_message_id = 0
 
 # Create rooms directory if it doesn't exist
 if not os.path.exists('rooms'):
@@ -76,7 +75,6 @@ def select_room(room_name):
     if response.status_code == 200:
         load_users_in_room(room_name)
         load_chat_history(room_name)
-        poll_messages()
     else:
         print(f"Error joining room: {response.json()['message']}")
 
@@ -111,25 +109,6 @@ def create_room():
             load_rooms()
         else:
             print(f"Error creating room: {response.json()['message']}")
-
-# Function to poll for new messages
-def poll_messages():
-    global last_message_id
-    if current_room:
-        response = requests.get(f'{server_url}/get_messages', params={
-            'room_name': current_room,
-            'last_message_id': last_message_id
-        })
-        if response.status_code == 200:
-            messages = response.json()
-            if messages:
-                chat_text.config(state=tk.NORMAL)
-                for message in messages:
-                    chat_text.insert(tk.END, f"{message['username']}: {message['message']}\n")
-                    save_message_to_file(current_room, f"{message['username']}: {message['message']}")
-                    last_message_id = message['message_id']
-                chat_text.config(state=tk.DISABLED)
-        root.after(2000, poll_messages)  # Poll every 2 seconds
 
 # Initialize Tkinter window
 root = tk.Tk()
