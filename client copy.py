@@ -5,7 +5,7 @@ import json
 import os
 
 # Load user info from JSON file
-with open('userinfo.json', 'r') as file:
+with open('userinfoo.json', 'r') as file:
     user_info = json.load(file)
 
 username = user_info['username']
@@ -75,6 +75,8 @@ def select_room(room_name):
     if response.status_code == 200:
         load_users_in_room(room_name)
         load_chat_history(room_name)
+        # Start checking for new messages
+        check_for_new_messages()
     else:
         print(f"Error joining room: {response.json()['message']}")
 
@@ -99,6 +101,23 @@ def load_chat_history(room_name):
     except FileNotFoundError:
         pass
     chat_text.config(state=tk.DISABLED)
+
+# Function to check for new messages periodically
+def check_for_new_messages():
+    global current_room
+    if current_room:
+        try:
+            with open(f'rooms/{current_room}.txt', 'r') as file:
+                chat_history = file.readlines()
+                chat_text.config(state=tk.NORMAL)
+                chat_text.delete(1.0, tk.END)
+                for line in chat_history:
+                    chat_text.insert(tk.END, line)
+                chat_text.config(state=tk.DISABLED)
+        except FileNotFoundError:
+            pass
+    # Schedule this function to run again after 2 seconds (2000 milliseconds)
+    root.after(2000, check_for_new_messages)
 
 # Function to create a new room
 def create_room():
