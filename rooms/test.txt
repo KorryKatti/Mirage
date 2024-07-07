@@ -11,3 +11,6 @@ user2: wow
 user1: does it work
 user2: indeed it does
 user1: great
+user1: color ful chat
+user1: i wanted it random but whatever
+user1: lol

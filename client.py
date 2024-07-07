@@ -3,6 +3,7 @@ from tkinter import scrolledtext, simpledialog
 import requests
 import json
 import os
+import random
 
 # Load user info from JSON file
 with open('userinfo.json', 'r') as file:
@@ -26,6 +27,11 @@ def save_message_to_file(room_name, message):
     with open(f'rooms/{room_name}.txt', 'a') as file:
         file.write(f'{message}\n')
 
+# Function to generate a color based on the username
+def generate_user_color(username):
+    random.seed(username)
+    return "#{:06x}".format(random.randint(0, 0xFFFFFF))
+
 # Function to send a chat message
 def send_chat_message():
     global current_room
@@ -39,8 +45,10 @@ def send_chat_message():
         if response.status_code == 200:
             chat_message_entry.delete(0, tk.END)
             chat_text.config(state=tk.NORMAL)
+            user_color = generate_user_color(username)
             formatted_message = f'{username}: {message}'
-            chat_text.insert(tk.END, f'{formatted_message}\n')
+            chat_text.insert(tk.END, f'{formatted_message}\n', ('username',))
+            chat_text.tag_config('username', foreground=user_color)
             chat_text.config(state=tk.DISABLED)
             save_message_to_file(current_room, formatted_message)
         else:
@@ -48,7 +56,9 @@ def send_chat_message():
     elif message:
         chat_text.config(state=tk.NORMAL)
         formatted_message = f'{username} (self): {message}'
-        chat_text.insert(tk.END, f'{formatted_message}\n')
+        chat_text.insert(tk.END, f'{formatted_message}\n', ('username',))
+        user_color = generate_user_color(username)
+        chat_text.tag_config('username', foreground=user_color)
         chat_text.config(state=tk.DISABLED)
         chat_message_entry.delete(0, tk.END)
 
@@ -60,8 +70,8 @@ def load_rooms():
     if response.status_code == 200:
         rooms = response.json()
         for room in rooms:
-            room_button = tk.Button(rooms_canvas_frame, text=room, command=lambda r=room: select_room(r))
-            room_button.pack(fill=tk.X)
+            room_button = tk.Button(rooms_canvas_frame, text=room, command=lambda r=room: select_room(r), bg='#444', fg='white', relief='flat', bd=0)
+            room_button.pack(fill=tk.X, pady=2)
 
 # Function to select a room
 def select_room(room_name):
@@ -97,7 +107,10 @@ def load_chat_history(room_name):
         with open(f'rooms/{room_name}.txt', 'r') as file:
             chat_history = file.readlines()
             for line in chat_history:
-                chat_text.insert(tk.END, line)
+                user, message = line.split(': ', 1)
+                user_color = generate_user_color(user)
+                chat_text.insert(tk.END, f'{line}', ('username',))
+                chat_text.tag_config('username', foreground=user_color)
     except FileNotFoundError:
         pass
     chat_text.config(state=tk.DISABLED)
@@ -112,7 +125,10 @@ def check_for_new_messages():
                 chat_text.config(state=tk.NORMAL)
                 chat_text.delete(1.0, tk.END)
                 for line in chat_history:
-                    chat_text.insert(tk.END, line)
+                    user, message = line.split(': ', 1)
+                    user_color = generate_user_color(user)
+                    chat_text.insert(tk.END, f'{line}', ('username',))
+                    chat_text.tag_config('username', foreground=user_color)
                 chat_text.config(state=tk.DISABLED)
         except FileNotFoundError:
             pass
@@ -129,21 +145,50 @@ def create_room():
         else:
             print(f"Error creating room: {response.json()['message']}")
 
+# Function to style buttons
+def style_button(button):
+    button.configure(
+        bg='#555',
+        fg='white',
+        activebackground='#666',
+        activeforeground='white',
+        relief='flat',
+        bd=0
+    )
+
+# Function to style entry boxes
+def style_entry(entry):
+    entry.configure(
+        bg='#333',
+        fg='white',
+        insertbackground='white',
+        relief='flat',
+        bd=0
+    )
+
+# Function to style frames
+def style_frame(frame):
+    frame.configure(
+        bg='#333',
+        bd=0
+    )
+
 # Initialize Tkinter window
 root = tk.Tk()
 root.title("Chat Application")
+root.configure(bg='#333')
 
 # Frame for room selection
 rooms_frame = tk.Frame(root, bg='#333')
 rooms_frame.pack(side=tk.LEFT, fill=tk.Y)
 
 # Canvas for scrollable room list
-rooms_canvas = tk.Canvas(rooms_frame, bg='#333')
-rooms_canvas.pack(side=tk.LEFT, fill=tk.Y)
+rooms_canvas = tk.Canvas(rooms_frame, bg='#333', highlightthickness=0)
+rooms_canvas.pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=5)
 
 # Scrollbar for room selection
 rooms_scrollbar = tk.Scrollbar(rooms_frame, orient=tk.VERTICAL, command=rooms_canvas.yview)
-rooms_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+rooms_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, padx=5, pady=5)
 
 # Configure canvas
 rooms_canvas.config(yscrollcommand=rooms_scrollbar.set)
@@ -155,38 +200,43 @@ rooms_canvas.create_window((0, 0), window=rooms_canvas_frame, anchor='nw')
 
 # Button for creating a new room
 create_room_button = tk.Button(rooms_frame, text="Create Room", command=create_room)
-create_room_button.pack(fill=tk.X)
+create_room_button.pack(fill=tk.X, pady=5)
+style_button(create_room_button)
 
 # Frame for chat messages and input
-chat_frame = tk.Frame(root, bg='#444')
+chat_frame = tk.Frame(root, bg='#444', padx=10, pady=10)
 chat_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
 # Label for current room
-room_label = tk.Label(chat_frame, text="Select a room or talk to yourself", bg='#444', fg='white')
+room_label = tk.Label(chat_frame, text="Select a room or talk to yourself", bg='#444', fg='white', pady=5)
 room_label.pack()
+style_frame(room_label)
 
 # Text widget for chat messages
-chat_text = scrolledtext.ScrolledText(chat_frame, state=tk.DISABLED, bg='#222', fg='white', wrap=tk.WORD)
+chat_text = scrolledtext.ScrolledText(chat_frame, state=tk.DISABLED, bg='#222', fg='white', wrap=tk.WORD, relief='flat', bd=0)
 chat_text.pack(fill=tk.BOTH, expand=True)
 
 # Entry widget for chat message input
-chat_message_entry = tk.Entry(chat_frame, bg='#333', fg='white')
+chat_message_entry = tk.Entry(chat_frame)
 chat_message_entry.pack(fill=tk.X, pady=5)
+style_entry(chat_message_entry)
 
 # Send message button
 send_button = tk.Button(chat_frame, text="Send", command=send_chat_message)
 send_button.pack(pady=5)
+style_button(send_button)
 
 # Button for talking to yourself
 talk_to_yourself_button = tk.Button(chat_frame, text="Talk to Yourself", command=send_chat_message)
 talk_to_yourself_button.pack(pady=5)
+style_button(talk_to_yourself_button)
 
 # Frame for user list
-user_list_frame = tk.Frame(root, bg='#333')
+user_list_frame = tk.Frame(root, bg='#333', padx=10, pady=10)
 user_list_frame.pack(side=tk.RIGHT, fill=tk.Y)
 
 # Listbox for user list
-user_list = tk.Listbox(user_list_frame, bg='#222', fg='white')
+user_list = tk.Listbox(user_list_frame, bg='#222', fg='white', relief='flat', bd=0)
 user_list.pack(fill=tk.BOTH, expand=True)
 
 # Load rooms when starting the client
