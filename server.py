@@ -43,6 +43,19 @@ def join_room():
             f.truncate()
     return jsonify({"message": "Joined room"}), 200
 
+@app.route('/leave_room', methods=['POST'])
+def leave_room():
+    username = request.json.get('username')
+    room_name = request.json.get('room_name')
+    with open('rooms.json', 'r+') as f:
+        rooms = json.load(f)
+        if room_name in rooms and username in rooms[room_name]:
+            rooms[room_name].remove(username)
+            f.seek(0)
+            json.dump(rooms, f)
+            f.truncate()
+    return jsonify({"message": "Left room"}), 200
+
 @app.route('/get_users_in_room', methods=['GET'])
 def get_users_in_room():
     room_name = request.args.get('room_name')

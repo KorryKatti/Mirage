@@ -90,6 +90,24 @@ def select_room(room_name):
     else:
         print(f"Error joining room: {response.json()['message']}")
 
+# Function to leave a room
+def leave_room():
+    global current_room
+    if current_room:
+        response = requests.post(f'{server_url}/leave_room', json={
+            'username': username,
+            'room_name': current_room
+        })
+        if response.status_code == 200:
+            current_room = None
+            room_label.config(text="Select a room or talk to yourself")
+            chat_text.config(state=tk.NORMAL)
+            chat_text.delete(1.0, tk.END)
+            chat_text.config(state=tk.DISABLED)
+            user_list.delete(0, tk.END)
+        else:
+            print(f"Error leaving room: {response.json()['message']}")
+
 # Function to load users in a room
 def load_users_in_room(room_name):
     response = requests.get(f'{server_url}/get_users_in_room', params={'room_name': room_name})
@@ -153,94 +171,66 @@ def style_button(button):
         activebackground='#666',
         activeforeground='white',
         relief='flat',
-        bd=0
+        bd=0,
+        padx=10,
+        pady=5
     )
 
-# Function to style entry boxes
-def style_entry(entry):
-    entry.configure(
-        bg='#333',
-        fg='white',
-        insertbackground='white',
-        relief='flat',
-        bd=0
-    )
-
-# Function to style frames
-def style_frame(frame):
-    frame.configure(
-        bg='#333',
-        bd=0
-    )
-
-# Initialize Tkinter window
+# Create the main window
 root = tk.Tk()
-root.title("Chat Application")
-root.configure(bg='#333')
+root.title("Mirage Chat")
+root.geometry("800x600")
 
-# Frame for room selection
-rooms_frame = tk.Frame(root, bg='#333')
+# Create the chat frame
+chat_frame = tk.Frame(root)
+chat_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+# Create the chat text widget
+chat_text = scrolledtext.ScrolledText(chat_frame, state=tk.DISABLED, wrap=tk.WORD, bg='#333', fg='white', insertbackground='white')
+chat_text.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+
+# Create the chat message entry
+chat_message_entry = tk.Entry(chat_frame, bg='#444', fg='white', insertbackground='white')
+chat_message_entry.pack(padx=10, pady=10, fill=tk.X)
+
+# Create the send button
+send_button = tk.Button(chat_frame, text="Send", command=send_chat_message)
+send_button.pack(padx=10, pady=5, side=tk.LEFT)
+style_button(send_button)
+
+# Create the leave room button
+leave_room_button = tk.Button(chat_frame, text="Leave Room", command=leave_room)
+leave_room_button.pack(padx=10, pady=5, side=tk.RIGHT)
+style_button(leave_room_button)
+
+# Create the rooms frame
+rooms_frame = tk.Frame(root, width=200, bg='#222')
 rooms_frame.pack(side=tk.LEFT, fill=tk.Y)
 
-# Canvas for scrollable room list
-rooms_canvas = tk.Canvas(rooms_frame, bg='#333', highlightthickness=0)
-rooms_canvas.pack(side=tk.LEFT, fill=tk.Y, padx=5, pady=5)
+# Create the room label
+room_label = tk.Label(rooms_frame, text="Select a room or talk to yourself", bg='#222', fg='white', padx=10, pady=5)
+room_label.pack(fill=tk.X)
 
-# Scrollbar for room selection
-rooms_scrollbar = tk.Scrollbar(rooms_frame, orient=tk.VERTICAL, command=rooms_canvas.yview)
-rooms_scrollbar.pack(side=tk.RIGHT, fill=tk.Y, padx=5, pady=5)
-
-# Configure canvas
-rooms_canvas.config(yscrollcommand=rooms_scrollbar.set)
-rooms_canvas.bind('<Configure>', lambda e: rooms_canvas.config(scrollregion=rooms_canvas.bbox("all")))
-
-# Frame inside canvas for room buttons
-rooms_canvas_frame = tk.Frame(rooms_canvas, bg='#333')
-rooms_canvas.create_window((0, 0), window=rooms_canvas_frame, anchor='nw')
-
-# Button for creating a new room
+# Create the create room button
 create_room_button = tk.Button(rooms_frame, text="Create Room", command=create_room)
 create_room_button.pack(fill=tk.X, pady=5)
 style_button(create_room_button)
 
-# Frame for chat messages and input
-chat_frame = tk.Frame(root, bg='#444', padx=10, pady=10)
-chat_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+# Create the rooms canvas and frame
+rooms_canvas = tk.Canvas(rooms_frame, bg='#222', bd=0, highlightthickness=0)
+rooms_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+rooms_scrollbar = tk.Scrollbar(rooms_frame, orient=tk.VERTICAL, command=rooms_canvas.yview)
+rooms_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+rooms_canvas_frame = tk.Frame(rooms_canvas, bg='#222')
+rooms_canvas.create_window((0, 0), window=rooms_canvas_frame, anchor='nw')
+rooms_canvas.configure(yscrollcommand=rooms_scrollbar.set)
 
-# Label for current room
-room_label = tk.Label(chat_frame, text="Select a room or talk to yourself", bg='#444', fg='white', pady=5)
-room_label.pack()
-style_frame(room_label)
+# Create the users list box
+user_list = tk.Listbox(root, bg='#333', fg='white', bd=0)
+user_list.pack(side=tk.RIGHT, fill=tk.Y)
 
-# Text widget for chat messages
-chat_text = scrolledtext.ScrolledText(chat_frame, state=tk.DISABLED, bg='#222', fg='white', wrap=tk.WORD, relief='flat', bd=0)
-chat_text.pack(fill=tk.BOTH, expand=True)
-
-# Entry widget for chat message input
-chat_message_entry = tk.Entry(chat_frame)
-chat_message_entry.pack(fill=tk.X, pady=5)
-style_entry(chat_message_entry)
-
-# Send message button
-send_button = tk.Button(chat_frame, text="Send", command=send_chat_message)
-send_button.pack(pady=5)
-style_button(send_button)
-
-# Button for talking to yourself
-talk_to_yourself_button = tk.Button(chat_frame, text="Talk to Yourself", command=send_chat_message)
-talk_to_yourself_button.pack(pady=5)
-style_button(talk_to_yourself_button)
-
-# Frame for user list
-user_list_frame = tk.Frame(root, bg='#333', padx=10, pady=10)
-user_list_frame.pack(side=tk.RIGHT, fill=tk.Y)
-
-# Listbox for user list
-user_list = tk.Listbox(user_list_frame, bg='#222', fg='white', relief='flat', bd=0)
-user_list.pack(fill=tk.BOTH, expand=True)
-
-# Load rooms when starting the client
+# Load rooms when the app starts
 load_rooms()
 
-# Start the Tkinter event loop
+# Start the Tkinter main loop
 root.mainloop()

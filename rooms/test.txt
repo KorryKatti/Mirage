@@ -14,3 +14,4 @@ user1: great
 user1: color ful chat
 user1: i wanted it random but whatever
 user1: lol
+user1: alright i will be leaving the room now
