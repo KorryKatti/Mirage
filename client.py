@@ -4,6 +4,7 @@ import requests
 import json
 import os
 import random
+import uuid
 
 # Load user info from JSON file
 with open('userinfo.json', 'r') as file:
@@ -22,10 +23,11 @@ current_room = None
 if not os.path.exists('rooms'):
     os.makedirs('rooms')
 
-# Function to save a message to a room file
+# Function to save a message to a room file with a unique UUID
 def save_message_to_file(room_name, message):
+    message_uuid = uuid.uuid4()  # Generate a unique UUID
     with open(f'rooms/{room_name}.txt', 'a') as file:
-        file.write(f'{message}\n')
+        file.write(f'{message_uuid}: {message}\n')
 
 # Function to generate a color based on the username
 def generate_user_color(username):
@@ -61,6 +63,7 @@ def send_chat_message():
         chat_text.tag_config('username', foreground=user_color)
         chat_text.config(state=tk.DISABLED)
         chat_message_entry.delete(0, tk.END)
+        save_message_to_file('self', formatted_message)
 
 # Function to load rooms from server
 def load_rooms():
@@ -125,9 +128,11 @@ def load_chat_history(room_name):
         with open(f'rooms/{room_name}.txt', 'r') as file:
             chat_history = file.readlines()
             for line in chat_history:
-                user, message = line.split(': ', 1)
+                # Extract the UUID and message
+                message_uuid, message = line.split(': ', 1)
+                user, message_content = message.split(': ', 1)
                 user_color = generate_user_color(user)
-                chat_text.insert(tk.END, f'{line}', ('username',))
+                chat_text.insert(tk.END, f'{message}', ('username',))
                 chat_text.tag_config('username', foreground=user_color)
     except FileNotFoundError:
         pass
@@ -143,9 +148,11 @@ def check_for_new_messages():
                 chat_text.config(state=tk.NORMAL)
                 chat_text.delete(1.0, tk.END)
                 for line in chat_history:
-                    user, message = line.split(': ', 1)
+                    # Extract the UUID and message
+                    message_uuid, message = line.split(': ', 1)
+                    user, message_content = message.split(': ', 1)
                     user_color = generate_user_color(user)
-                    chat_text.insert(tk.END, f'{line}', ('username',))
+                    chat_text.insert(tk.END, f'{message}', ('username',))
                     chat_text.tag_config('username', foreground=user_color)
                 chat_text.config(state=tk.DISABLED)
         except FileNotFoundError:
@@ -226,11 +233,21 @@ rooms_canvas.create_window((0, 0), window=rooms_canvas_frame, anchor='nw')
 rooms_canvas.configure(yscrollcommand=rooms_scrollbar.set)
 
 # Create the users list box
-user_list = tk.Listbox(root, bg='#333', fg='white', bd=0)
-user_list.pack(side=tk.RIGHT, fill=tk.Y)
+user_list = tk.Listbox(root, bg='#333', fg='white', selectbackground='#444', selectforeground='white')
+user_list.pack(side=tk.RIGHT, fill=tk.Y, padx=10, pady=10)
 
-# Load rooms when the app starts
+# Function to handle canvas scroll region update
+def update_scrollregion(event):
+    rooms_canvas.configure(scrollregion=rooms_canvas.bbox('all'))
+
+rooms_canvas_frame.bind('<Configure>', update_scrollregion)
+
+# Initial load of rooms from the server
 load_rooms()
 
-# Start the Tkinter main loop
+# Set focus to the message entry field
+chat_message_entry.focus()
+
+# Run the Tkinter event loop
 root.mainloop()
+
