@@ -14,7 +14,7 @@ email = user_info['email']
 secret_key = user_info['secret_key']
 
 # Server URL
-server_url = 'http://127.0.0.1:5000'
+server_url = ' duinogame.pythonanywhere.com'
 
 current_room = None
 last_message_id = -1
