@@ -35,8 +35,9 @@ Enjoy chatting with Mirage! 🌟
 ---
 Keep your userinfo in the userinfo.json , its kinda useless but well you can modify this app and it might become required.
 
-The server is online at  http://duinogame.pythonanywhere.com btw , put that in server_url in client.py and welcome to a network
-
+1. The server is online at  http://duinogame.pythonanywhere.com btw , put that in server_url in client.py and welcome to a network
+2. ( this server , the duinogame server, is very very very slow btw , might even fail . I just made it for some test stuff. Use http://127.0.0.1:5000 if working locally )
+3. I will suggest render still to host it
 
 ## Usage Instructions
 
