@@ -32,6 +32,10 @@ Mirage is intended for non-sensitive, casual communications. It does not provide
 
 Enjoy chatting with Mirage! 🌟
 
+---
+Keep your userinfo in the userinfo.json , its kinda useless but well you can modify this app and it might become required.
+
+The server is online at  http://duinogame.pythonanywhere.com btw , put that in server_url in client.py and welcome to a network
 
 
 ## Usage Instructions
