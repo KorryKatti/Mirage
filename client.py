@@ -1,9 +1,13 @@
 import tkinter as tk
-from tkinter import scrolledtext, simpledialog
+from tkinter import scrolledtext, simpledialog, messagebox
+from ttkbootstrap import Style
 import requests
 import json
 import os
 import random
+
+# Initialize ttkbootstrap
+style = Style(theme='cyborg')  # Choose 'cyborg' theme for retro neon look
 
 # Load user info from JSON file
 with open('userinfo.json', 'r') as file:
@@ -14,7 +18,7 @@ email = user_info['email']
 secret_key = user_info['secret_key']
 
 # Server URL
-server_url = 'http://duinogame.pythonanywhere.com'
+server_url = 'http://127.0.0.1:5000'
 
 current_room = None
 last_message_id = -1
@@ -45,10 +49,11 @@ def send_chat_message():
         if response.status_code == 200:
             chat_message_entry.delete(0, tk.END)
         else:
-            print(f"Error sending message: {response.json().get('message', 'Unknown error')}")
+            messagebox.showerror("Error", f"Error sending message: {response.json().get('message', 'Unknown error')}")
     elif message:
-        print("Select a room first.")
+        messagebox.showerror("Error", "Select a room first.")
 
+# Function to load rooms from server
 # Function to load rooms from server
 def load_rooms():
     for widget in rooms_canvas_frame.winfo_children():
@@ -57,8 +62,9 @@ def load_rooms():
     if response.status_code == 200:
         rooms = response.json()
         for room in rooms:
-            room_button = tk.Button(rooms_canvas_frame, text=room, command=lambda r=room: select_room(r), bg='#444', fg='white', relief='flat', bd=0)
+            room_button = tk.Button(rooms_canvas_frame, text=room, command=lambda r=room: select_room(r), bg='blue', fg='white')
             room_button.pack(fill=tk.X, pady=2)
+
 
 # Function to select a room
 def select_room(room_name):
@@ -76,7 +82,7 @@ def select_room(room_name):
         # Start checking for new messages
         check_for_new_messages()
     else:
-        print(f"Error joining room: {response.json().get('message', 'Unknown error')}")
+        messagebox.showerror("Error", f"Error joining room: {response.json().get('message', 'Unknown error')}")
 
 # Function to leave a room
 def leave_room():
@@ -95,7 +101,7 @@ def leave_room():
             chat_text.config(state=tk.DISABLED)
             user_list.delete(0, tk.END)
         else:
-            print(f"Error leaving room: {response.json().get('message', 'Unknown error')}")
+            messagebox.showerror("Error", f"Error leaving room: {response.json().get('message', 'Unknown error')}")
 
 # Function to load users in a room
 def load_users_in_room(room_name):
@@ -141,7 +147,6 @@ def check_for_new_messages():
                 chat_text.see(tk.END)
         root.after(1700, check_for_new_messages)
 
-
 # Function to periodically refresh the user list
 def refresh_user_list():
     if current_room:
@@ -157,15 +162,16 @@ def create_new_room():
             'room_name': new_room_name
         })
         if response.status_code == 200:
-            print(f"Room '{new_room_name}' created.")
+            messagebox.showinfo("Success", f"Room '{new_room_name}' created.")
             # Add the new room button directly to the GUI
-            room_button = tk.Button(rooms_canvas_frame, text=new_room_name, command=lambda r=new_room_name: select_room(r), bg='#444', fg='white', relief='flat', bd=0)
+            room_button = tk.Button(rooms_canvas_frame, text=new_room_name, command=lambda r=new_room_name: select_room(r), style='primary.TButton')
             room_button.pack(fill=tk.X, pady=2)
             # Refresh the rooms list to update the GUI
             load_rooms()
         else:
-            print(f"Error creating room '{new_room_name}': {response.json().get('message', 'Unknown error')}")
+            messagebox.showerror("Error", f"Error creating room '{new_room_name}': {response.json().get('message', 'Unknown error')}")
             load_rooms()
+
 # Initialize main Tkinter window
 root = tk.Tk()
 root.title("Chat App")
@@ -179,27 +185,27 @@ left_frame = tk.Frame(main_frame)
 left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
 # Room label
-room_label = tk.Label(left_frame, text="Select a room or talk to yourself", bg='#333', fg='white')
+room_label = tk.Label(left_frame, text="Select a room or talk to yourself", bg='black', fg='cyan')
 room_label.pack(fill=tk.X)
 
 # Chat display
-chat_text = scrolledtext.ScrolledText(left_frame, state=tk.DISABLED, bg='#222', fg='white', wrap=tk.WORD)
+chat_text = scrolledtext.ScrolledText(left_frame, state=tk.DISABLED, bg='black', fg='white')
 chat_text.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
 
 # Chat message entry
 chat_message_frame = tk.Frame(left_frame)
 chat_message_frame.pack(fill=tk.X, padx=10, pady=10)
-chat_message_entry = tk.Entry(chat_message_frame, bg='#444', fg='white')
+chat_message_entry = tk.Entry(chat_message_frame, bg='black', fg='white')
 chat_message_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
-send_button = tk.Button(chat_message_frame, text="Send", command=send_chat_message, bg='#444', fg='white', relief='flat')
+send_button = tk.Button(chat_message_frame, text="Send", command=send_chat_message, bg='black', fg='cyan')
 send_button.pack(side=tk.RIGHT)
 
 # Right frame (rooms and users)
-right_frame = tk.Frame(main_frame, bg='#333')
+right_frame = tk.Frame(main_frame, bg='#222')
 right_frame.pack(side=tk.RIGHT, fill=tk.Y)
 
 # Rooms list
-rooms_label = tk.Label(right_frame, text="Rooms", bg='#333', fg='white')
+rooms_label = tk.Label(right_frame, text="Rooms", bg='black', fg='cyan')
 rooms_label.pack(fill=tk.X, pady=(10, 5))
 
 rooms_canvas = tk.Canvas(right_frame, bg='#222')
@@ -212,17 +218,13 @@ rooms_canvas.config(yscrollcommand=rooms_scrollbar.set)
 rooms_canvas.bind('<Configure>', lambda e: rooms_canvas.configure(scrollregion=rooms_canvas.bbox("all")))
 
 # Users list
-users_label = tk.Label(right_frame, text="Users", bg='#333', fg='white')
+users_label = tk.Label(right_frame, text="Users", bg='black', fg='cyan')
 users_label.pack(fill=tk.X, pady=(20, 5))
 user_list = tk.Listbox(right_frame, bg='#222', fg='white')
 user_list.pack(fill=tk.Y, expand=True)
 
 # Create new room button
-create_room_button = tk.Button(root, text="Create New Room", command=create_new_room, bg='#444', fg='white', relief='flat')
-create_room_button.pack(side=tk.BOTTOM, padx=10, pady=10)
-
-# Create leave room button
-create_room_button = tk.Button(root, text="Leave Room", command=leave_room, bg='#444', fg='white', relief='flat')
+create_room_button = tk.Button(right_frame, text="Create New Room", command=create_new_room, bg='black', fg='cyan')
 create_room_button.pack(side=tk.BOTTOM, padx=10, pady=10)
 
 # Load rooms initially
