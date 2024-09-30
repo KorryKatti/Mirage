@@ -1,0 +1,6 @@
+.venv/
+rooms/
+rooms.json
+messages/
+/build
+/dist
