@@ -78,6 +78,10 @@ def load_rooms():
 # Function to select a room
 def select_room(room_name):
     global current_room, last_message_id
+
+    if current_room == room_name:
+        # If selecting the same room, don't reload
+        return
     current_room = room_name
     last_message_id = -1
     room_label.config(text=f"Current Room: {room_name}")
@@ -133,15 +137,33 @@ def load_users_in_room(room_name):
 
 # Function to load chat history from a room file
 def load_chat_history(room_name):
+    global last_message_id
     chat_text.config(state=tk.NORMAL)
     chat_text.delete(1.0, tk.END)
+
+    # Reset last_message_id when loading a new room
+    last_message_id = -1
+
     try:
-        with open(f"messages/{room_name}.txt", "r") as file:
-            chat_history = file.read()
-            chat_text.insert(tk.END, chat_history)
-    except FileNotFoundError:
-        pass
+        # First, load messages from the server
+        response = requests.get(
+            f"{server_url}/get_all_messages",
+            params={"room_name": room_name}
+        )
+        if response.status_code == 200:
+            messages = response.json()
+            for msg in messages:
+                formatted_message = f"{msg['username']}: {msg['message']}"
+                user_color = generate_user_color(msg["username"])
+                chat_text.insert(tk.END, f"{formatted_message}\n", ("username",))
+                chat_text.tag_config("username", foreground=user_color)
+                # Update last_message_id to the highest seen
+                last_message_id = max(last_message_id, msg["id"])
+    except Exception as e:
+        print(f"Error loading messages from server: {e}")
+
     chat_text.config(state=tk.DISABLED)
+    chat_text.see(tk.END)
 
 
 # Function to check for new messages
