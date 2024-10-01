@@ -6,7 +6,7 @@ Mirage is a lightweight chat application that prioritizes privacy by not storing
 
 ## Features
 
-- **Privacy First**: Messages are never stored on the server, ensuring that your conversations remain private.
+- **Privacy First**: Messages are never stored on the server permanently , ensuring that your conversations remain private.
 - **Customizable Client**: Modify the client as per your needs and preferences.
 - **Simple Hosting**: Hosting the Mirage server is easy with Python and Flask, so you can set it up without hassle.
 
