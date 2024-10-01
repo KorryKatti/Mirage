@@ -1,4 +1,4 @@
-# Mirage
+![image](https://github.com/user-attachments/assets/6de33f5a-d864-41c5-94db-fbefa5da85ad)# Mirage
 
 [![Hacktoberfest 2024](https://img.shields.io/badge/Hacktoberfest-2024-blueviolet)](https://hacktoberfest.com/)
 
@@ -53,3 +53,12 @@ Mirage is open-source software licensed under the [MIT License](LICENSE).
 ## Contact
 
 If you have questions or suggestions, feel free to open an issue or contribute directly!
+
+
+# Some bugs
+
+1. The server url is not meant to be opened , that is why you are getting the 404 not found error. You have to run the server.py then run `client.py`
+2. You will have to first make a `userinfo.json` file in same folder as `client.py` . Here is what you can paste in it for basic testing
+```json
+{"username": "user", "email": "user@example.com", "secret_key": "secret"}
+```
