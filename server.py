@@ -129,5 +129,14 @@ def get_new_messages():
     else:
         return jsonify([]), 200
 
+
+
+@app.route('/get_all_messages', methods=['GET'])
+def get_all_messages():
+    room_name = request.args.get('room_name')
+    if room_name in messages:
+        return jsonify(messages[room_name]), 200
+    return jsonify([]), 200
+
 if __name__ == '__main__':
     app.run(debug=True)
