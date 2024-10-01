@@ -1,4 +1,4 @@
-![image](https://github.com/user-attachments/assets/6de33f5a-d864-41c5-94db-fbefa5da85ad)# Mirage
+# Mirage
 
 [![Hacktoberfest 2024](https://img.shields.io/badge/Hacktoberfest-2024-blueviolet)](https://hacktoberfest.com/)
 
