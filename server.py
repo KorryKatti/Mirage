@@ -2,12 +2,13 @@ from flask import Flask, request, jsonify
 from collections import defaultdict
 import os
 import json
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
 # File paths
 rooms_file = 'rooms.json'
-users_file = 'userserverinfo.json'
+users_file = 'userinfo.json'
 
 # Initialize rooms file if it doesn't exist
 if not os.path.exists(rooms_file):
@@ -24,6 +25,10 @@ def save_rooms(rooms):
     with open(rooms_file, 'w') as f:
         json.dump(rooms, f)
 
+def get_username():
+    with open(users_file, 'r') as f:
+        user_info = json.load(f)
+        return user_info['username']
 # Function to get users in a room
 def get_users_in_room(room_name):
     rooms = load_rooms()
@@ -43,11 +48,21 @@ def leave_room(username, room_name):
         rooms[room_name].remove(username)
         save_rooms(rooms)
 
+def delete_old_messages(messages, room_name):
+    time_to_delete = datetime.now() - timedelta(hours=1)
+    messages[room_name] = [
+        msg for msg in messages[room_name]
+        if isinstance(msg['timestamp'], datetime) and msg['timestamp'] > time_to_delete or
+           isinstance(msg['timestamp'], str) and datetime.fromisoformat(msg['timestamp']) > time_to_delete
+    ]
+
 # Route to get all rooms
 @app.route('/get_rooms', methods=['GET'])
-def get_rooms():
+def get_rooms(): #only returns room of the specefic user
     rooms = load_rooms()
-    return jsonify(list(rooms.keys()))
+    username = get_username()
+    user_rooms = {room_id: users for room_id, users in rooms.items() if username in users}
+    return jsonify(list(user_rooms.keys()))
 
 # Route to create a new room
 @app.route('/create_room', methods=['POST'])
@@ -60,7 +75,9 @@ def create_room():
     if room_name in rooms:
         return jsonify({"error": "Room already exists"}), 400
 
-    rooms[room_name] = []
+    username = request.json.get('username') #add the current loggedin username to the cretaed room
+    rooms[room_name] = [username]
+
     save_rooms(rooms)
     return jsonify({"message": "Room created"}), 201
 
@@ -111,8 +128,12 @@ def send_message():
     if username and room_name and message:
         # Store the message with a unique ID
         message_id = message_counter[room_name]
-        messages[room_name].append({'id': message_id, 'username': username, 'message': message})
+        timestamp = datetime.now().isoformat()
+
+        messages[room_name].append({'id': message_id, 'username': username, 'message': message, 'timestamp': timestamp})
         message_counter[room_name] += 1
+        
+        delete_old_messages(messages, room_name) # Delete old messages
         return jsonify({'message': 'Message sent successfully'}), 200
     else:
         return jsonify({'error': 'Missing username, room_name, or message'}), 400
