@@ -7,7 +7,7 @@ app = Flask(__name__)
 
 # File paths
 rooms_file = 'rooms.json'
-users_file = 'userserverinfo.json'
+users_file = 'userinfo.json'
 
 # Initialize rooms file if it doesn't exist
 if not os.path.exists(rooms_file):
@@ -24,6 +24,10 @@ def save_rooms(rooms):
     with open(rooms_file, 'w') as f:
         json.dump(rooms, f)
 
+def get_username():
+    with open(users_file, 'r') as f:
+        user_info = json.load(f)
+        return user_info['username']
 # Function to get users in a room
 def get_users_in_room(room_name):
     rooms = load_rooms()
@@ -45,9 +49,12 @@ def leave_room(username, room_name):
 
 # Route to get all rooms
 @app.route('/get_rooms', methods=['GET'])
-def get_rooms():
+def get_rooms(): #only returns room of the specefic user
     rooms = load_rooms()
-    return jsonify(list(rooms.keys()))
+    username = get_username()
+    user_rooms = {room_id: users for room_id, users in rooms.items() if username in users}
+    p
+    return jsonify(list(user_rooms.keys()))
 
 # Route to create a new room
 @app.route('/create_room', methods=['POST'])
@@ -60,7 +67,9 @@ def create_room():
     if room_name in rooms:
         return jsonify({"error": "Room already exists"}), 400
 
-    rooms[room_name] = []
+    username = request.json.get('username') #add the current loggedin username to the cretaed room
+    rooms[room_name] = [username]
+
     save_rooms(rooms)
     return jsonify({"message": "Room created"}), 201
 
