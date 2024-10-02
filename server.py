@@ -72,13 +72,20 @@ def delete_old_messages(messages, room_name):
            isinstance(msg['timestamp'], str) and datetime.fromisoformat(msg['timestamp']) > time_to_delete
     ]
 
-# Function to record new ping in statistics
 def increment_stats(username: str):
+    """
+    Updates today and total counts if the user did not made a request in last 24.5 hours.
+    """
+    review_stats()
     stats = load_stats()
-    stats['today'] = stats.get('today', 0) + 1
-    stats['total'] = stats.get('total', 0) + 1
-    save_stats(stats)
-    pings.append({'username': username, 'timestamp': datetime.now()})
+
+    if any(ping.get('username') == username for ping in pings):
+        pass
+    else:
+        stats['today'] = stats.get('today', 0) + 1
+        stats['total'] = stats.get('total', 0) + 1
+        pings.append({'username': username, 'timestamp': datetime.now()})
+        save_stats(stats)
 
 # Function to update statistics
 def review_stats():
