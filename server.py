@@ -8,22 +8,38 @@ app = Flask(__name__)
 
 # File paths
 rooms_file = 'rooms.json'
+stats_file = 'stats.json'
 users_file = 'userinfo.json'
 
-# Initialize rooms file if it doesn't exist
+pings = []
+
+# Initialize rooms and stats files if don't exist
 if not os.path.exists(rooms_file):
     with open(rooms_file, 'w') as f:
         json.dump({}, f)
+if not os.path.exists(stats_file):
+    with open(stats_file, 'w') as f:
+        json.dump({'today': 0, 'total': 0}, f)
 
 # Load rooms from JSON file
 def load_rooms():
     with open(rooms_file, 'r') as f:
         return json.load(f)
 
+# Load stats from JSON file
+def load_stats() -> dict:
+    with open(stats_file, 'r') as f:
+        return json.load(f)
+
 # Save rooms to JSON file
 def save_rooms(rooms):
     with open(rooms_file, 'w') as f:
         json.dump(rooms, f)
+
+# Save stats to JSON file
+def save_stats(stats):
+    with open(stats_file, 'w') as f:
+        json.dump(stats, f)
 
 def get_username():
     with open(users_file, 'r') as f:
@@ -55,6 +71,33 @@ def delete_old_messages(messages, room_name):
         if isinstance(msg['timestamp'], datetime) and msg['timestamp'] > time_to_delete or
            isinstance(msg['timestamp'], str) and datetime.fromisoformat(msg['timestamp']) > time_to_delete
     ]
+
+# Function to record new ping in statistics
+def increment_stats(username: str):
+    stats = load_stats()
+    stats['today'] = stats.get('today', 0) + 1
+    stats['total'] = stats.get('total', 0) + 1
+    save_stats(stats)
+    pings.append({'username': username, 'timestamp': datetime.now()})
+
+# Function to update statistics
+def review_stats():
+    stats = load_stats()
+    threshold = datetime.timedelta(hours=24, min=30)
+
+    expired_count = 0
+    current_time = datetime.now()
+
+    for i, ping in enumerate(pings):
+        if current_time - ping.get('timestamp') > threshold:
+            expired_count += 1
+            del pings[i]
+        else:
+            break  # Stop iterating if a non-expired ping is found
+
+    if expired_count > 0:
+        stats['today'] = max(stats.get('today', 0) - expired_count, 0)
+        save_stats(stats)
 
 # Route to get all rooms
 @app.route('/get_rooms', methods=['GET'])
@@ -125,6 +168,8 @@ def send_message():
     room_name = data.get('room_name')
     message = data.get('message')
 
+    increment_stats(username=username)
+
     if username and room_name and message:
         # Store the message with a unique ID
         message_id = message_counter[room_name]
@@ -161,3 +206,10 @@ def get_all_messages():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
+# Route to get statistics of the service
+@app.route('/metrics', methods=['GET'])
+def get_metrics():
+    review_stats()
+
+    return jsonify(load_stats()), 200

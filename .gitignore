@@ -1,6 +1,7 @@
 .venv/
 rooms/
 rooms.json
+stats.json
 messages/
 /build
 /dist
