@@ -90,7 +90,7 @@ def increment_stats(username: str):
 # Function to update statistics
 def review_stats():
     stats = load_stats()
-    threshold = datetime.timedelta(hours=24, min=30)
+    threshold = timedelta(hours=24, minutes=30)
 
     expired_count = 0
     current_time = datetime.now()
