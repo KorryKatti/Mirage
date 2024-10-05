@@ -1,4 +1,6 @@
-Flask
-requests
 ttkbootstrap
-gunicorn
+websocket-client
+python-engineio
+python-socketio
+eventlet  
+socketio
