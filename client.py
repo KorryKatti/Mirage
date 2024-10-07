@@ -6,7 +6,6 @@ import json
 import os
 import random
 
-# Load user info from JSON
 with open("userinfo.json", "r") as file:
     user_info = json.load(file)
 
@@ -20,32 +19,23 @@ sio = socketio.Client()
 current_room = None
 last_message_id = -1
 
-# Ensure 'messages' directory exists
 if not os.path.exists("messages"):
     os.makedirs("messages")
 
-
-# Function to save messages to the local file
 def save_message_to_file(room_name, message):
     with open(f"messages/{room_name}.txt", "a") as file:
         file.write(f"{message}\n")
 
-
-# Function to read messages from local file
 def read_messages_from_file(room_name):
     if os.path.exists(f"messages/{room_name}.txt"):
         with open(f"messages/{room_name}.txt", "r") as file:
             return file.readlines()
     return []
 
-
-# Function to generate a color based on username
 def generate_user_color(username):
     random.seed(username)
     return "#{:06x}".format(random.randint(0, 0xFFFFFF))
 
-
-# Function to send chat message
 def send_chat_message():
     global current_room
     message = chat_message_entry.get()
@@ -55,38 +45,26 @@ def send_chat_message():
     elif message:
         messagebox.showerror("Error", "Select a room first.")
 
-
-# Function to load available rooms
 def load_rooms():
     for widget in rooms_canvas_frame.winfo_children():
         widget.destroy()
     sio.emit("get_rooms")
 
-
-# Function to select a room
 def select_room(room_name):
     global current_room, last_message_id
-
     if current_room == room_name:
         return
     current_room = room_name
     last_message_id = -1
     room_label.config(text=f"Current Room: {room_name}")
     sio.emit("join_room_route", {"username": username, "room_name": room_name})
-
-    # Load chat history from file instead of server
     load_chat_history_from_file(room_name)
-
-    # Start checking for new messages
     check_for_new_messages()
 
-
-# Function to leave the current room
 def leave_room():
     global current_room, last_message_id
     if current_room:
         sio.emit("leave_room_route", {"username": username, "room_name": current_room})
-        # Display message indicating user has left the room
         chat_text.config(state=tk.NORMAL)
         chat_text.insert(tk.END, f"User: {username} left room {current_room} successfully.\n", "system_message")
         chat_text.tag_config("system_message", foreground="red")
@@ -96,61 +74,43 @@ def leave_room():
         chat_text.config(state=tk.DISABLED)
         user_list.delete(0, tk.END)
 
-
-# Function to load users in the room
 def load_users_in_room(room_name):
     sio.emit("get_users_in_room_route", {"room_name": room_name})
-
-
-# Function to load chat history from file
+    
 def load_chat_history_from_file(room_name):
     global last_message_id
     chat_text.config(state=tk.NORMAL)
     chat_text.delete(1.0, tk.END)
-
-    # Display the current user's name at the top
     chat_text.insert(tk.END, f"Current User: {username}\n", "current_user")
     chat_text.tag_config("current_user", foreground="cyan")
-
-    # Read messages from local file and display them without extra lines
     messages = read_messages_from_file(room_name)
     for message in messages:
         username_in_msg, msg_text = message.split(":", 1)
         user_color = generate_user_color(username_in_msg.strip())
         chat_text.insert(tk.END, f"{message}", ("username",))
         chat_text.tag_config("username", foreground=user_color)
-
     last_message_id = -1
     chat_text.config(state=tk.DISABLED)
     chat_text.see(tk.END)
 
-
-# Function to check for new messages from the server
 def check_for_new_messages():
     global last_message_id
     if current_room:
         sio.emit("get_new_messages", {"room_name": current_room, "last_message_id": last_message_id})
         root.after(1700, check_for_new_messages)
 
-
-# Function to refresh the user list
 def refresh_user_list():
     if current_room:
         load_users_in_room(current_room)
     root.after(2000, refresh_user_list)
 
-
-# Function to create a new room
 def create_new_room():
     new_room_name = simpledialog.askstring("Create New Room", "Enter the name for the new room:")
     if new_room_name:
         sio.emit("create_room", {"username": username, "room_name": new_room_name})
 
-
-# Socket event handler functions
 def on_connect():
     load_rooms()
-
 
 def on_room_list(rooms):
     for room in rooms:
@@ -163,24 +123,19 @@ def on_room_list(rooms):
         )
         room_button.pack(fill=tk.X, pady=2)
 
-
 def on_room_created(data):
     load_rooms()
-
 
 def on_joined_room(data):
     load_users_in_room(current_room)
 
-
 def on_left_room(data):
     leave_room()
-
 
 def on_room_users(users):
     user_list.delete(0, tk.END)
     for user in users:
         user_list.insert(tk.END, user)
-
 
 def on_new_messages(new_messages):
     global last_message_id
@@ -196,8 +151,6 @@ def on_new_messages(new_messages):
         chat_text.config(state=tk.DISABLED)
         chat_text.see(tk.END)
 
-
-# Registering socket events
 sio.on("connect", on_connect)
 sio.on("room_list", on_room_list)
 sio.on("room_created", on_room_created)
@@ -206,7 +159,6 @@ sio.on("left_room", on_left_room)
 sio.on("room_users", on_room_users)
 sio.on("new_messages", on_new_messages)
 
-# Creating GUI
 root = tk.Tk()
 root.title("Chat App")
 
@@ -231,7 +183,6 @@ chat_message_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
 send_button = tk.Button(chat_message_frame, text="Send", command=send_chat_message, bg="black", fg="cyan")
 send_button.pack(side=tk.RIGHT)
 
-# New Leave Room button
 leave_room_button = tk.Button(left_frame, text="Leave Room", command=leave_room, bg="black", fg="red")
 leave_room_button.pack(fill=tk.X, padx=10, pady=(5, 10))
 
