@@ -4,3 +4,4 @@ python-engineio
 python-socketio
 eventlet  
 socketio
+gunicorn
