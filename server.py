@@ -5,7 +5,8 @@ from collections import defaultdict
 import socketio
 import eventlet
 
-sio = socketio.Server(cors_allowed_origins=["0.0.0.0:5000"])
+# Allow all origins for CORS
+sio = socketio.Server(cors_allowed_origins='*')  # Change here
 app = socketio.WSGIApp(sio)
 
 rooms_file = 'rooms.json'
