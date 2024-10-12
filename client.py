@@ -6,12 +6,27 @@ import json
 import os
 import random
 
+from client.security import encrypt_message, decrypt_message, default_secret_key, base64_to_aes
+
 with open("userinfo.json", "r") as file:
     user_info = json.load(file)
 
 username = user_info["username"]
 email = user_info["email"]
-secret_key = user_info["secret_key"]
+secret_key_base64 = user_info["secret_key"]
+
+# Check if secret_key is Base64 encoded, and decode it if valid
+try:
+    if secret_key_base64:
+        # Try decoding the base64-encoded key
+        secret_key = base64_to_aes(secret_key_base64)
+    else:
+        # Use default key if the secret_key is not provided or empty
+        secret_key = base64_to_aes(default_secret_key)
+except ValueError:
+    # Fallback to default key if decoding fails or key is invalid
+    secret_key = base64_to_aes(default_secret_key)
+
 
 server_url = "http://127.0.0.1:5000"
 sio = socketio.Client()
@@ -37,10 +52,11 @@ def generate_user_color(username):
     return "#{:06x}".format(random.randint(0, 0xFFFFFF))
 
 def send_chat_message():
-    global current_room
+    global current_room, secret_key
     message = chat_message_entry.get()
     if current_room and message:
-        sio.emit("send_message", {"username": username, "room_name": current_room, "message": message})
+        encrypted_message = encrypt_message(secret_key, message)
+        sio.emit("send_message", {"username": username, "room_name": current_room, "message": encrypted_message})
         chat_message_entry.delete(0, tk.END)
     elif message:
         messagebox.showerror("Error", "Select a room first.")
@@ -138,11 +154,12 @@ def on_room_users(users):
         user_list.insert(tk.END, user)
 
 def on_new_messages(new_messages):
-    global last_message_id
+    global last_message_id, secret_key
     if new_messages:
         chat_text.config(state=tk.NORMAL)
         for msg in new_messages:
-            formatted_message = f"{msg['username']}: {msg['message']}"
+            decrypted_message = decrypt_message(secret_key, msg['message'])
+            formatted_message = f"{msg['username']}: {decrypted_message}"
             save_message_to_file(current_room, formatted_message)
             user_color = generate_user_color(msg["username"])
             chat_text.insert(tk.END, f"{formatted_message}\n", ("username",))
