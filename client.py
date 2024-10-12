@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import scrolledtext, simpledialog, messagebox
 from ttkbootstrap import Style
+from collections import defaultdict
 import socketio
 import json
 import os
@@ -33,6 +34,8 @@ sio = socketio.Client()
 
 current_room = None
 last_message_id = -1
+user_colors = {}
+
 
 if not os.path.exists("messages"):
     os.makedirs("messages")
@@ -102,9 +105,15 @@ def load_chat_history_from_file(room_name):
     messages = read_messages_from_file(room_name)
     for message in messages:
         username_in_msg, msg_text = message.split(":", 1)
-        user_color = generate_user_color(username_in_msg.strip())
-        chat_text.insert(tk.END, f"{message}", ("username",))
-        chat_text.tag_config("username", foreground=user_color)
+        user_color = user_colors.get(username_in_msg.strip())
+
+        if (user_color is None):
+            user_color = generate_user_color(username_in_msg.strip())
+            user_colors[username_in_msg.strip()] = user_color
+
+        tag_name = f"user_{username_in_msg.strip()}"
+        chat_text.insert(tk.END, f"{message}", (tag_name))
+        chat_text.tag_config(tag_name, foreground=user_color)
     last_message_id = -1
     chat_text.config(state=tk.DISABLED)
     chat_text.see(tk.END)
@@ -175,9 +184,17 @@ def on_new_messages(data):
             if decrypted_message is not None:
                 formatted_message = f"{msg['username']}: {decrypted_message}"
                 save_message_to_file(current_room, formatted_message)
-                user_color = generate_user_color(msg["username"])
-                chat_text.insert(tk.END, f"{formatted_message}\n", ("username",))
-                chat_text.tag_config("username", foreground=user_color)
+
+                user_color = user_colors.get(msg['username'])
+
+                if (user_color is None):
+                    user_color = generate_user_color(msg['username'])
+                    user_colors[msg['username']] = user_color
+
+                tag_name = f"user_{msg['username']}"
+
+                chat_text.insert(tk.END, f"{formatted_message}\n", (tag_name))
+                chat_text.tag_config(tag_name, foreground=user_color)
             last_message_id = msg["id"]
 
         if new_errors:
@@ -185,10 +202,9 @@ def on_new_messages(data):
             for err in new_errors:
                 # Show only those errors that are connected to this user
                 if err['username'] == username:
-                    user_color = generate_user_color(username)
                     chat_text.insert(tk.END, f"ERROR: {err['receiver']} could not decrypt your message (Bad security key) \n",
-                                     ("username",))
-                    chat_text.tag_config("username", foreground=user_color)
+                                     ("error"))
+                    chat_text.tag_config("error", foreground="#b20000")
 
         chat_text.config(state=tk.DISABLED)
         chat_text.see(tk.END)
