@@ -153,20 +153,55 @@ def on_room_users(users):
     for user in users:
         user_list.insert(tk.END, user)
 
-def on_new_messages(new_messages):
-    global last_message_id, secret_key
+def on_new_messages(data):
+    global last_message_id, secret_key, username
+
+    new_messages = data['messages']
+    new_errors = data['errors']
+
+    error_message = None
     if new_messages:
         chat_text.config(state=tk.NORMAL)
         for msg in new_messages:
-            decrypted_message = decrypt_message(secret_key, msg['message'])
-            formatted_message = f"{msg['username']}: {decrypted_message}"
-            save_message_to_file(current_room, formatted_message)
-            user_color = generate_user_color(msg["username"])
-            chat_text.insert(tk.END, f"{formatted_message}\n", ("username",))
-            chat_text.tag_config("username", foreground=user_color)
+            decrypted_message = None
+            try:
+                decrypted_message = decrypt_message(secret_key, msg['message'])
+            except TypeError:
+                error_message = msg
+                error_message['receiver'] = username
+                error_message['room_name'] = current_room
+                error_message["id"] = int(new_messages[len(new_messages)-1]['id']) + 1
+            except ValueError:
+                error_message = msg
+                error_message['receiver'] = username
+                error_message['room_name'] = current_room
+                error_message["id"] = int(new_messages[len(new_messages) - 1]['id']) + 1
+
+            if decrypted_message is not None:
+                formatted_message = f"{msg['username']}: {decrypted_message}"
+                save_message_to_file(current_room, formatted_message)
+                user_color = generate_user_color(msg["username"])
+                chat_text.insert(tk.END, f"{formatted_message}\n", ("username",))
+                chat_text.tag_config("username", foreground=user_color)
             last_message_id = msg["id"]
+
+        if new_errors:
+            chat_text.config(state=tk.NORMAL)
+            for err in new_errors:
+                # Show only those errors that are connected to this user
+                if err['username'] == username:
+                    user_color = generate_user_color(username)
+                    chat_text.insert(tk.END, f"ERROR: {err['receiver']} could not decrypt your message (Bad security key) \n",
+                                     ("username",))
+                    chat_text.tag_config("username", foreground=user_color)
+
         chat_text.config(state=tk.DISABLED)
         chat_text.see(tk.END)
+
+        # Avoid duplications in error array
+        if error_message is not None:
+            sio.emit("decryption_error", error_message)
+
 
 sio.on("connect", on_connect)
 sio.on("room_list", on_room_list)
