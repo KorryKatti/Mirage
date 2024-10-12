@@ -166,16 +166,11 @@ def on_new_messages(data):
             decrypted_message = None
             try:
                 decrypted_message = decrypt_message(secret_key, msg['message'])
-            except TypeError:
+            except (TypeError, ValueError):
                 error_message = msg
                 error_message['receiver'] = username
                 error_message['room_name'] = current_room
                 error_message["id"] = int(new_messages[len(new_messages)-1]['id']) + 1
-            except ValueError:
-                error_message = msg
-                error_message['receiver'] = username
-                error_message['room_name'] = current_room
-                error_message["id"] = int(new_messages[len(new_messages) - 1]['id']) + 1
 
             if decrypted_message is not None:
                 formatted_message = f"{msg['username']}: {decrypted_message}"
