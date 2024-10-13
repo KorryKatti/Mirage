@@ -1,7 +1,6 @@
 import tkinter as tk
 from tkinter import scrolledtext, simpledialog, messagebox
 from ttkbootstrap import Style
-from collections import defaultdict
 import socketio
 import json
 import os
@@ -30,11 +29,13 @@ except ValueError:
 
 
 server_url = "http://127.0.0.1:5000"
-sio = socketio.Client()
+sio = socketio.Client(reconnection=True, reconnection_attempts=5, reconnection_delay=2)
 
 current_room = None
 last_message_id = -1
 user_colors = {}
+user_poll_active = False
+message_poll_active = False
 
 
 if not os.path.exists("messages"):
@@ -119,15 +120,30 @@ def load_chat_history_from_file(room_name):
     chat_text.see(tk.END)
 
 def check_for_new_messages():
-    global last_message_id
+    global last_message_id, message_poll_active
     if current_room:
-        sio.emit("get_new_messages", {"room_name": current_room, "last_message_id": last_message_id})
-        root.after(1700, check_for_new_messages)
+        try:
+            sio.emit("get_new_messages", {"room_name": current_room, "last_message_id": last_message_id})
+            root.after(1700, check_for_new_messages)
+        except:
+            print('Failed to fetch messages. (No connection)')
+            message_poll_active = False
+
 
 def refresh_user_list():
+    global user_poll_active
+    error = False
     if current_room:
-        load_users_in_room(current_room)
-    root.after(2000, refresh_user_list)
+        try:
+            load_users_in_room(current_room)
+        except:
+            print('Failed to fetch users. (No connection)')
+            error = True
+
+    if not error:
+        root.after(2000, refresh_user_list)
+    else:
+        user_poll_active = False
 
 def create_new_room():
     new_room_name = simpledialog.askstring("Create New Room", "Enter the name for the new room:")
@@ -135,7 +151,12 @@ def create_new_room():
         sio.emit("create_room", {"username": username, "room_name": new_room_name})
 
 def on_connect():
+    if not user_poll_active:
+        refresh_user_list()
+    if not message_poll_active:
+        check_for_new_messages()
     load_rooms()
+    print('Server connected')
 
 def on_room_list(rooms):
     for room in rooms:
@@ -152,7 +173,10 @@ def on_room_created(data):
     load_rooms()
 
 def on_joined_room(data):
-    load_users_in_room(current_room)
+    try:
+        load_users_in_room(current_room)
+    except:
+        print('Failed to fetch users. (No connection)')
 
 def on_left_room(data):
     leave_room()
@@ -273,8 +297,5 @@ create_room_button = tk.Button(right_frame, text="Create New Room", command=crea
 create_room_button.pack(side=tk.BOTTOM, padx=10, pady=10)
 
 sio.connect(server_url)
-
-refresh_user_list()
-check_for_new_messages()
 
 root.mainloop()
