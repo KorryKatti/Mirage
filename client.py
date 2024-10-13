@@ -151,9 +151,12 @@ def create_new_room():
         sio.emit("create_room", {"username": username, "room_name": new_room_name})
 
 def on_connect():
+    global message_poll_active, user_poll_active
     if not user_poll_active:
+        user_poll_active = True
         refresh_user_list()
     if not message_poll_active:
+        message_poll_active = True
         check_for_new_messages()
     load_rooms()
     print('Server connected')
