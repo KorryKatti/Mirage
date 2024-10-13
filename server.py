@@ -6,7 +6,7 @@ import socketio
 import eventlet
 
 # Allow all origins for CORS
-sio = socketio.Server(cors_allowed_origins='*')  # Change here
+sio = socketio.Server(cors_allowed_origins='*')
 app = socketio.WSGIApp(sio)
 
 rooms_file = 'rooms.json'
@@ -174,9 +174,10 @@ def send_message(sid, data):
 
     if username and room_name and message:
         message_id = message_counter[room_name]
-        timestamp = datetime.now().isoformat()
+        timestamp = datetime.now().strftime('%H:%M')
+        date = datetime.now().strftime('%Y-%m-%d')
 
-        messages[room_name].append({'id': message_id, 'username': username, 'message': message, 'timestamp': timestamp})
+        messages[room_name].append({'id': message_id, 'username': username, 'message': message, 'timestamp': timestamp, 'date': date})
         message_counter[room_name] += 1
 
         delete_old_messages(messages, room_name)

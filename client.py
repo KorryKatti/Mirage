@@ -5,6 +5,7 @@ import socketio
 import json
 import os
 import random
+from datetime import datetime
 
 with open("userinfo.json", "r") as file:
     user_info = json.load(file)
@@ -40,7 +41,9 @@ def send_chat_message():
     global current_room
     message = chat_message_entry.get()
     if current_room and message:
-        sio.emit("send_message", {"username": username, "room_name": current_room, "message": message})
+        timestamp = datetime.now().strftime("%H:%M")
+        date = datetime.now().strftime("%Y-%m-%d")
+        sio.emit("send_message", {"username": username, "room_name": current_room, "message": message, "timestamp": timestamp, "date": date})
         chat_message_entry.delete(0, tk.END)
     elif message:
         messagebox.showerror("Error", "Select a room first.")
@@ -76,7 +79,7 @@ def leave_room():
 
 def load_users_in_room(room_name):
     sio.emit("get_users_in_room_route", {"room_name": room_name})
-    
+
 def load_chat_history_from_file(room_name):
     global last_message_id
     chat_text.config(state=tk.NORMAL)
@@ -84,10 +87,21 @@ def load_chat_history_from_file(room_name):
     chat_text.insert(tk.END, f"Current User: {username}\n", "current_user")
     chat_text.tag_config("current_user", foreground="cyan")
     messages = read_messages_from_file(room_name)
+    last_date = None
     for message in messages:
-        username_in_msg, msg_text = message.split(":", 1)
+        try:
+            date, timestamp, username_in_msg, msg_text = message.split(" | ", 3)
+        except ValueError:
+            continue  # Skip improperly formatted messages
+        if last_date != date:
+            if last_date is not None:
+                chat_text.insert(tk.END, "\n")
+            chat_text.insert(tk.END, f"----- {datetime.strptime(date, '%Y-%m-%d').strftime('%d %B')} -----\n", "date_separator")
+            chat_text.tag_config("date_separator", foreground="green")
+            last_date = date
         user_color = generate_user_color(username_in_msg.strip())
-        chat_text.insert(tk.END, f"{message}", ("username",))
+        formatted_message = f"[{timestamp}] {username_in_msg.strip()}: {msg_text.strip()}"
+        chat_text.insert(tk.END, f"{formatted_message}\n", ("username",))
         chat_text.tag_config("username", foreground=user_color)
     last_message_id = -1
     chat_text.config(state=tk.DISABLED)
@@ -141,9 +155,17 @@ def on_new_messages(new_messages):
     global last_message_id
     if new_messages:
         chat_text.config(state=tk.NORMAL)
+        last_date = None
         for msg in new_messages:
-            formatted_message = f"{msg['username']}: {msg['message']}"
-            save_message_to_file(current_room, formatted_message)
+            date = msg.get('date', datetime.now().strftime('%Y-%m-%d'))
+            if last_date != date:
+                if last_date is not None:
+                    chat_text.insert(tk.END, "\n")
+                chat_text.insert(tk.END, f"----- {datetime.strptime(date, '%Y-%m-%d').strftime('%d %B')} -----\n", "date_separator")
+                chat_text.tag_config("date_separator", foreground="green")
+                last_date = date
+            formatted_message = f"[{msg['timestamp']}] {msg['username']}: {msg['message']}"
+            save_message_to_file(current_room, f"{date} | {msg['timestamp']} | {msg['username']} | {msg['message']}")
             user_color = generate_user_color(msg["username"])
             chat_text.insert(tk.END, f"{formatted_message}\n", ("username",))
             chat_text.tag_config("username", foreground=user_color)
