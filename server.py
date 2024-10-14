@@ -122,8 +122,7 @@ def disconnect(sid):
 @sio.event
 def get_rooms(sid):
     rooms = load_rooms()
-    username = get_username()
-    user_rooms = {room_id: users for room_id, users in rooms.items() if username in users}
+    user_rooms = {room_id: users for room_id, users in rooms.items()}
     sio.emit('room_list', list(user_rooms.keys()), room=sid)
 
 @sio.event
