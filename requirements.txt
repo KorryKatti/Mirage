@@ -2,7 +2,8 @@ ttkbootstrap
 websocket-client
 python-engineio
 python-socketio
-eventlet  
-socketio
+eventlet
 gunicorn
 flask-cors
+requests
+pycryptodome
