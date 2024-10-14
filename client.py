@@ -6,18 +6,37 @@ import json
 import os
 import random
 
+from client.security import encrypt_message, decrypt_message, default_secret_key, base64_to_aes
+
 with open("userinfo.json", "r") as file:
     user_info = json.load(file)
 
 username = user_info["username"]
 email = user_info["email"]
-secret_key = user_info["secret_key"]
+secret_key_base64 = user_info["secret_key"]
+
+# Check if secret_key is Base64 encoded, and decode it if valid
+try:
+    if secret_key_base64:
+        # Try decoding the base64-encoded key
+        secret_key = base64_to_aes(secret_key_base64)
+    else:
+        # Use default key if the secret_key is not provided or empty
+        secret_key = base64_to_aes(default_secret_key)
+except ValueError:
+    # Fallback to default key if decoding fails or key is invalid
+    secret_key = base64_to_aes(default_secret_key)
+
 
 server_url = "http://127.0.0.1:5000"
-sio = socketio.Client()
+sio = socketio.Client(reconnection=True, reconnection_attempts=5, reconnection_delay=2)
 
 current_room = None
 last_message_id = -1
+user_colors = {}
+user_poll_active = False
+message_poll_active = False
+
 
 if not os.path.exists("messages"):
     os.makedirs("messages")
@@ -37,10 +56,11 @@ def generate_user_color(username):
     return "#{:06x}".format(random.randint(0, 0xFFFFFF))
 
 def send_chat_message():
-    global current_room
+    global current_room, secret_key
     message = chat_message_entry.get()
     if current_room and message:
-        sio.emit("send_message", {"username": username, "room_name": current_room, "message": message})
+        encrypted_message = encrypt_message(secret_key, message)
+        sio.emit("send_message", {"username": username, "room_name": current_room, "message": encrypted_message})
         chat_message_entry.delete(0, tk.END)
     elif message:
         messagebox.showerror("Error", "Select a room first.")
@@ -86,23 +106,44 @@ def load_chat_history_from_file(room_name):
     messages = read_messages_from_file(room_name)
     for message in messages:
         username_in_msg, msg_text = message.split(":", 1)
-        user_color = generate_user_color(username_in_msg.strip())
-        chat_text.insert(tk.END, f"{message}", ("username",))
-        chat_text.tag_config("username", foreground=user_color)
+        user_color = user_colors.get(username_in_msg.strip())
+
+        if (user_color is None):
+            user_color = generate_user_color(username_in_msg.strip())
+            user_colors[username_in_msg.strip()] = user_color
+
+        tag_name = f"user_{username_in_msg.strip()}"
+        chat_text.insert(tk.END, f"{message}", (tag_name))
+        chat_text.tag_config(tag_name, foreground=user_color)
     last_message_id = -1
     chat_text.config(state=tk.DISABLED)
     chat_text.see(tk.END)
 
 def check_for_new_messages():
-    global last_message_id
+    global last_message_id, message_poll_active
     if current_room:
-        sio.emit("get_new_messages", {"room_name": current_room, "last_message_id": last_message_id})
-        root.after(1700, check_for_new_messages)
+        try:
+            sio.emit("get_new_messages", {"room_name": current_room, "last_message_id": last_message_id})
+            root.after(1700, check_for_new_messages)
+        except:
+            print('Failed to fetch messages. (No connection)')
+            message_poll_active = False
+
 
 def refresh_user_list():
+    global user_poll_active
+    error = False
     if current_room:
-        load_users_in_room(current_room)
-    root.after(2000, refresh_user_list)
+        try:
+            load_users_in_room(current_room)
+        except:
+            print('Failed to fetch users. (No connection)')
+            error = True
+
+    if not error:
+        root.after(2000, refresh_user_list)
+    else:
+        user_poll_active = False
 
 def create_new_room():
     new_room_name = simpledialog.askstring("Create New Room", "Enter the name for the new room:")
@@ -110,7 +151,15 @@ def create_new_room():
         sio.emit("create_room", {"username": username, "room_name": new_room_name})
 
 def on_connect():
+    global message_poll_active, user_poll_active
+    if not user_poll_active:
+        user_poll_active = True
+        refresh_user_list()
+    if not message_poll_active:
+        message_poll_active = True
+        check_for_new_messages()
     load_rooms()
+    print('Server connected')
 
 def on_room_list(rooms):
     for room in rooms:
@@ -127,7 +176,10 @@ def on_room_created(data):
     load_rooms()
 
 def on_joined_room(data):
-    load_users_in_room(current_room)
+    try:
+        load_users_in_room(current_room)
+    except:
+        print('Failed to fetch users. (No connection)')
 
 def on_left_room(data):
     leave_room()
@@ -137,19 +189,57 @@ def on_room_users(users):
     for user in users:
         user_list.insert(tk.END, user)
 
-def on_new_messages(new_messages):
-    global last_message_id
+def on_new_messages(data):
+    global last_message_id, secret_key, username
+
+    new_messages = data['messages']
+    new_errors = data['errors']
+
+    error_message = None
     if new_messages:
         chat_text.config(state=tk.NORMAL)
         for msg in new_messages:
-            formatted_message = f"{msg['username']}: {msg['message']}"
-            save_message_to_file(current_room, formatted_message)
-            user_color = generate_user_color(msg["username"])
-            chat_text.insert(tk.END, f"{formatted_message}\n", ("username",))
-            chat_text.tag_config("username", foreground=user_color)
+            decrypted_message = None
+            try:
+                decrypted_message = decrypt_message(secret_key, msg['message'])
+            except (TypeError, ValueError):
+                error_message = msg
+                error_message['receiver'] = username
+                error_message['room_name'] = current_room
+                error_message["id"] = int(new_messages[len(new_messages)-1]['id']) + 1
+
+            if decrypted_message is not None:
+                formatted_message = f"{msg['username']}: {decrypted_message}"
+                save_message_to_file(current_room, formatted_message)
+
+                user_color = user_colors.get(msg['username'])
+
+                if (user_color is None):
+                    user_color = generate_user_color(msg['username'])
+                    user_colors[msg['username']] = user_color
+
+                tag_name = f"user_{msg['username']}"
+
+                chat_text.insert(tk.END, f"{formatted_message}\n", (tag_name))
+                chat_text.tag_config(tag_name, foreground=user_color)
             last_message_id = msg["id"]
+
+        if new_errors:
+            chat_text.config(state=tk.NORMAL)
+            for err in new_errors:
+                # Show only those errors that are connected to this user
+                if err['username'] == username:
+                    chat_text.insert(tk.END, f"ERROR: {err['receiver']} could not decrypt your message (Bad security key) \n",
+                                     ("error"))
+                    chat_text.tag_config("error", foreground="#b20000")
+
         chat_text.config(state=tk.DISABLED)
         chat_text.see(tk.END)
+
+        # Avoid duplications in error array
+        if error_message is not None:
+            sio.emit("decryption_error", error_message)
+
 
 sio.on("connect", on_connect)
 sio.on("room_list", on_room_list)
@@ -210,8 +300,5 @@ create_room_button = tk.Button(right_frame, text="Create New Room", command=crea
 create_room_button.pack(side=tk.BOTTOM, padx=10, pady=10)
 
 sio.connect(server_url)
-
-refresh_user_list()
-check_for_new_messages()
 
 root.mainloop()

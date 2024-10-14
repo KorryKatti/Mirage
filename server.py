@@ -67,6 +67,16 @@ def delete_old_messages(messages, room_name):
            isinstance(msg['timestamp'], str) and datetime.fromisoformat(msg['timestamp']) > time_to_delete
     ]
 
+def delete_old_errors(room_name):
+    global errors
+
+    time_to_delete = datetime.now() - timedelta(hours=1)
+    errors[room_name] = [
+        msg for msg in errors[room_name]
+        if isinstance(msg['timestamp'], datetime) and msg['timestamp'] > time_to_delete or
+           isinstance(msg['timestamp'], str) and datetime.fromisoformat(msg['timestamp']) > time_to_delete
+    ]
+
 def increment_stats(username: str):
     review_stats()
     stats = load_stats()
@@ -99,6 +109,7 @@ def review_stats():
 
 messages = defaultdict(list)
 message_counter = defaultdict(int)
+errors = defaultdict(list)
 
 @sio.event
 def connect(sid, environ):
@@ -111,8 +122,7 @@ def disconnect(sid):
 @sio.event
 def get_rooms(sid):
     rooms = load_rooms()
-    username = get_username()
-    user_rooms = {room_id: users for room_id, users in rooms.items() if username in users}
+    user_rooms = {room_id: users for room_id, users in rooms.items()}
     sio.emit('room_list', list(user_rooms.keys()), room=sid)
 
 @sio.event
@@ -180,19 +190,24 @@ def send_message(sid, data):
         message_counter[room_name] += 1
 
         delete_old_messages(messages, room_name)
+        delete_old_errors(room_name)
         sio.emit('message_sent', {'message': 'Message sent successfully'}, room=sid)
     else:
         sio.emit('error', {'error': 'Missing username, room_name, or message'}, room=sid)
 
 @sio.event
 def get_new_messages(sid, data):
+    global messages, errors
     room_name = data.get('room_name')
     last_message_id = int(data.get('last_message_id', -1))
+    room_messages = []
+    room_errors = []
     if room_name in messages:
         room_messages = [msg for msg in messages[room_name] if msg['id'] > last_message_id]
-        sio.emit('new_messages', room_messages, room=sid)
-    else:
-        sio.emit('new_messages', [], room=sid)
+    if room_name in errors:
+        room_errors = [err for err in errors[room_name] if err['id'] > last_message_id]
+    sio.emit('new_messages', {'messages': room_messages, 'errors': room_errors}, room=sid)
+
 
 @sio.event
 def get_all_messages(sid, data):
@@ -206,6 +221,13 @@ def get_all_messages(sid, data):
 def get_metrics(sid):
     review_stats()
     sio.emit('metrics', load_stats(), room=sid)
+
+@sio.event
+def decryption_error(sid, data):
+    global errors
+    room_name = data.get('room_name')
+    data['id'] = int(data['id'] + 1)
+    errors[room_name].append(data)
 
 # Start the server with host and port number
 if __name__ == '__main__':
