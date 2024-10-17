@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 import socketio
 import eventlet
+import bcrypt
 
 # Allow all origins for CORS
 sio = socketio.Server(cors_allowed_origins='*')  # Change here
@@ -18,6 +19,14 @@ pings = []
 if not os.path.exists(rooms_file):
     with open(rooms_file, 'w') as f:
         json.dump({}, f)
+else:
+    with open(rooms_file, 'r') as f:
+        rooms = json.load(f)
+        for room in rooms:
+            rooms[room]['users'] = []
+        with open(rooms_file, 'w') as f:
+            json.dump(rooms, f)
+
 if not os.path.exists(stats_file):
     with open(stats_file, 'w') as f:
         json.dump({'today': 0, 'total': 0}, f)
@@ -45,7 +54,7 @@ def get_username():
 
 def get_users_in_room(room_name):
     rooms = load_rooms()
-    return rooms.get(room_name, [])
+    return rooms.get(room_name, []).get('users', [])
 
 def join_room(username, room_name):
     rooms = load_rooms()
@@ -56,7 +65,7 @@ def join_room(username, room_name):
 def leave_room(username, room_name):
     rooms = load_rooms()
     if room_name in rooms and username in rooms[room_name]:
-        rooms[room_name].remove(username)
+        rooms[room_name]['users'].remove(username)
         save_rooms(rooms)
 
 def delete_old_messages(messages, room_name):
@@ -128,6 +137,7 @@ def get_rooms(sid):
 @sio.event
 def create_room(sid, data):
     room_name = data.get('room_name')
+    password = data.get('password')
     if not room_name:
         sio.emit('error', {'error': 'Room name not provided'}, room=sid)
         return
@@ -136,9 +146,13 @@ def create_room(sid, data):
     if room_name in rooms:
         sio.emit('error', {'error': 'Room already exists'}, room=sid)
         return
+    
+    if password:
+        hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        rooms[room_name] = {'users': [], 'password': hashed_password}
+    else:
+        rooms[room_name] = {'users': [], 'password': None}
 
-    username = data.get('username')
-    rooms[room_name] = [username]
     save_rooms(rooms)
     sio.emit('room_created', {'message': 'Room created'}, room=sid)
 
@@ -146,12 +160,28 @@ def create_room(sid, data):
 def join_room_route(sid, data):
     username = data.get('username')
     room_name = data.get('room_name')
+    password = data.get('password')
     if not username or not room_name:
         sio.emit('error', {'error': 'Username or room name not provided'}, room=sid)
         return
 
-    join_room(username, room_name)
-    sio.emit('joined_room', {'message': 'Joined room'}, room=sid)
+    rooms = load_rooms()
+    if room_name in rooms:
+        room = rooms[room_name]
+        if room['password']:
+            if not password or not bcrypt.checkpw(password.encode('utf-8'), room['password'].encode('utf-8')):
+                sio.emit('error', {'error': 'Incorrect password'}, room=sid)
+                return
+        if username not in room['users']:
+            sio.emit('joined_room', {'message': 'Joined room', "room_name": room_name}, room=sid)
+            room['users'].append(username)
+            save_rooms(rooms)
+        else:
+            sio.emit('error', {'error': 'User already in room, try again.'}, room=sid)
+            rooms[room_name]['users'].remove(username)
+            save_rooms(rooms)
+    else:
+        sio.emit('error', {'error': 'Room does not exist'}, room=sid)
 
 @sio.event
 def leave_room_route(sid, data):

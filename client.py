@@ -71,15 +71,11 @@ def load_rooms():
     sio.emit("get_rooms")
 
 def select_room(room_name):
-    global current_room, last_message_id
-    if current_room == room_name:
-        return
+    global current_room
     current_room = room_name
-    last_message_id = -1
-    room_label.config(text=f"Current Room: {room_name}")
-    sio.emit("join_room_route", {"username": username, "room_name": room_name})
-    load_chat_history_from_file(room_name)
-    check_for_new_messages()
+    password = simpledialog.askstring("Join Room", "Enter the password:", show='*')
+    
+    sio.emit("join_room_route", {"username": username, "room_name": room_name, "password": password})
 
 def leave_room():
     global current_room, last_message_id
@@ -148,7 +144,8 @@ def refresh_user_list():
 def create_new_room():
     new_room_name = simpledialog.askstring("Create New Room", "Enter the name for the new room:")
     if new_room_name:
-        sio.emit("create_room", {"username": username, "room_name": new_room_name})
+        password = simpledialog.askstring("Create New Room", "Enter a password (optional):", show='*')
+        sio.emit("create_room", {"username": username, "room_name": new_room_name, "password": password})
 
 def on_connect():
     global message_poll_active, user_poll_active
@@ -176,6 +173,12 @@ def on_room_created(data):
     load_rooms()
 
 def on_joined_room(data):
+    global last_message_id
+    last_message_id = -1
+    room_label.config(text=f"Current Room: {data.get('room_name')}")
+    load_chat_history_from_file(data.get('room_name'))
+    check_for_new_messages()
+
     try:
         load_users_in_room(current_room)
     except:
@@ -240,6 +243,8 @@ def on_new_messages(data):
         if error_message is not None:
             sio.emit("decryption_error", error_message)
 
+def on_error(data):
+    messagebox.showerror("Error", data["error"])
 
 sio.on("connect", on_connect)
 sio.on("room_list", on_room_list)
@@ -248,6 +253,7 @@ sio.on("joined_room", on_joined_room)
 sio.on("left_room", on_left_room)
 sio.on("room_users", on_room_users)
 sio.on("new_messages", on_new_messages)
+sio.on("error", on_error)
 
 root = tk.Tk()
 root.title("Chat App")

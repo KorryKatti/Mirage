@@ -7,3 +7,4 @@ messages/
 /dist
 tst.html
 .idea
+__pycache__/
