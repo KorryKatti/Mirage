@@ -72,8 +72,6 @@ def load_rooms():
 
 def select_room(room_name):
     global current_room
-    if current_room == room_name:
-        return
     current_room = room_name
     password = simpledialog.askstring("Join Room", "Enter the password:", show='*')
     
