@@ -171,9 +171,7 @@ def join_room_route(sid, data):
         if room['password']:
             if not password or not bcrypt.checkpw(password.encode('utf-8'), room['password'].encode('utf-8')):
                 sio.emit('error', {'error': 'Incorrect password'}, room=sid)
-                rooms[room_name]['users'].remove(username)
-                save_rooms(rooms)
-                return 
+                return
         if username not in room['users']:
             sio.emit('joined_room', {'message': 'Joined room', "room_name": room_name}, room=sid)
             room['users'].append(username)
