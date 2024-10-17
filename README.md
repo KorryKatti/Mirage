@@ -1,4 +1,5 @@
 # Mirage
+# NOT UPDATED TO LATEST UPDATES TO THE APP || USE ISSUES INSTEAD
 
 [![Hacktoberfest 2024](https://img.shields.io/badge/Hacktoberfest-2024-blueviolet)](https://hacktoberfest.com/)
 
