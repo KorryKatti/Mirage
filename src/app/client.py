@@ -6,9 +6,9 @@ import json
 import os
 import random
 
-from client.security import encrypt_message, decrypt_message, default_secret_key, base64_to_aes
+from wall.security import encrypt_message, decrypt_message, default_secret_key, base64_to_aes
 
-with open("userinfo.json", "r") as file:
+with open("src/configs/userinfo.json", "r") as file:
     user_info = json.load(file)
 
 username = user_info["username"]
@@ -37,17 +37,18 @@ user_colors = {}
 user_poll_active = False
 message_poll_active = False
 
+messages_dir = 'src/app/messages'
 
-if not os.path.exists("messages"):
-    os.makedirs("messages")
+if not os.path.exists(messages_dir):
+    os.makedirs(messages_dir)
 
 def save_message_to_file(room_name, message):
-    with open(f"messages/{room_name}.txt", "a") as file:
+    with open(f"{messages_dir}/{room_name}.txt", "a") as file:
         file.write(f"{message}\n")
 
 def read_messages_from_file(room_name):
-    if os.path.exists(f"messages/{room_name}.txt"):
-        with open(f"messages/{room_name}.txt", "r") as file:
+    if os.path.exists(f"{messages_dir}/{room_name}.txt"):
+        with open(f"{messages_dir}/{room_name}.txt", "r") as file:
             return file.readlines()
     return []
 
