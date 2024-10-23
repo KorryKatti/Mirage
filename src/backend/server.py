@@ -10,9 +10,10 @@ import bcrypt
 sio = socketio.Server(cors_allowed_origins='*')  # Change here
 app = socketio.WSGIApp(sio)
 
-rooms_file = 'rooms.json'
-stats_file = 'stats.json'
-users_file = 'userinfo.json'
+# Define the configuration files
+cfg_dir = 'src/configs'
+rooms_file = f'{cfg_dir}/rooms.json'
+stats_file = f'{cfg_dir}/stats.json'
 
 pings = []
 
@@ -46,11 +47,6 @@ def save_rooms(rooms):
 def save_stats(stats):
     with open(stats_file, 'w') as f:
         json.dump(stats, f)
-
-def get_username():
-    with open(users_file, 'r') as f:
-        user_info = json.load(f)
-        return user_info['username']
 
 def get_users_in_room(room_name):
     rooms = load_rooms()
