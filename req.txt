@@ -1,0 +1,5 @@
+python-socketio
+click
+rich
+requests
+websocket-client
