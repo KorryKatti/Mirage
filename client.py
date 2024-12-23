@@ -497,7 +497,7 @@ class MainWindow(QMainWindow):
             'username': self.register_username.text().strip(),
             'email': self.register_email.text().strip(),
             'password': self.register_password.text().strip(),
-            'avatar_url': self.register_avatar.text().strip() or "default_avatar.png",
+            'avatar_url': self.register_avatar.text().strip() or "https://i.pinimg.com/736x/0c/da/40/0cda4058d21f8101ffcc223eec55c18f.jpg",
             'bio': self.register_bio.text().strip() or "No bio provided"
         }
 
