@@ -1,295 +1,375 @@
+import socket
+import threading
 import json
-import time
-from datetime import datetime, timedelta
-from flask import Flask
-from flask_socketio import SocketIO
-from cryptography.fernet import Fernet
-import hashlib
+import logging
+from datetime import datetime
+import os
+import bcrypt
 
-# Initialize Flask app and SocketIO
-app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")  # Allow CORS for testing
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# Load the key
-with open("secret.key", "rb") as key_file:
-    key = key_file.read()
-
-cipher_suite = Fernet(key)
-
-# Helper function to hash passwords
-def hash_password(password):
-    return hashlib.sha256(password.encode()).hexdigest()
-
-# Load existing users from JSON file
-def load_users():
-    try:
-        with open("users.json", "r") as file:
-            return json.load(file)
-    except FileNotFoundError:
-        return {}
-
-# Save users to JSON file
-def save_users(users):
-    with open("users.json", "w") as file:
-        json.dump(users, file)
-
-# Load existing login data from JSON file
-def load_logins():
-    try:
-        with open("logins.json", "r") as file:
-            return json.load(file)
-    except FileNotFoundError:
-        return {}
-
-# Save login data to JSON file
-def save_logins(logins):
-    with open("logins.json", "w") as file:
-        json.dump(logins, file)
-
-# Load existing room data from JSON file
-def load_rooms():
-    try:
-        with open("rooms.json", "r") as file:
-            return json.load(file)
-    except FileNotFoundError:
-        return {}
-
-# Save room data to JSON file
-def save_rooms(rooms):
-    with open("rooms.json", "w") as file:
-        json.dump(rooms, file)
-
-# In-memory storage
-users = load_users()
-logins = load_logins()
-rooms = load_rooms()
-
-# Function to count unique logins in the past 24 hours
-def count_unique_logins():
-    current_time = time.time()
-    unique_logins = set()
-    for username, timestamp in logins.items():
-        if current_time - timestamp <= 86400:  # 24 hours = 86400 seconds
-            unique_logins.add(username)
-    return len(unique_logins)
-
-# Basic route
-@app.route('/')
-def index():
-    return "Welcome to the SocketIO Server!"
-
-# Event handler for user login
-# Event handler for user login
-@socketio.on('login')
-def handle_login(data):
-    username = data.get('username')
-    password = data.get('password')
-    
-    print(f"Login attempt for username: {username}")  # Debug print
-    print(f"Current users in system: {users}")  # Debug print
-    
-    try:
-        # Hash the password
-        hashed_password = hash_password(password)
-        print(f"Hashed password: {hashed_password}")  # Debug print
-        
-        # Check if user exists (try both encrypted and unencrypted)
-        user_found = False
-        user_data = None
-        
-        # First try direct lookup (for testing)
-        if username in users:
-            user_found = True
-            user_data = users[username]
-        else:
-            # Try encrypted lookup
-            encrypted_username = cipher_suite.encrypt(username.encode()).decode()
-            print(f"Encrypted username: {encrypted_username}")  # Debug print
-            if encrypted_username in users:
-                user_found = True
-                user_data = users[encrypted_username]
-        
-        print(f"User found: {user_found}")  # Debug print
-        if user_found:
-            print(f"Stored password hash: {user_data['password']}")  # Debug print
-        
-        if user_found and user_data['password'] == hashed_password:
-            # Record the login time
-            logins[username] = time.time()
-            save_logins(logins)
-            
-            socketio.emit('login_response', {
-                'status': 'success',
-                'message': 'Login successful',
-                'username': username,
-                'unique_logins_count': len(logins)
-            })
-            print(f"Login successful for {username}")  # Debug print
-        else:
-            socketio.emit('login_response', {
-                'status': 'error',
-                'message': 'Invalid username or password'
-            })
-            print(f"Login failed for {username}")  # Debug print
-    
-    except Exception as e:
-        print(f"Error during login: {e}")  # Debug print
-        socketio.emit('login_response', {
-            'status': 'error',
-            'message': f'Login error: {str(e)}'
-        })
-
-# Event handler for user registration
-@socketio.on('register')
-def handle_register(data):
-    username = data.get('username')
-    password = data.get('password')
-    
-    print(f"Registration attempt for username: {username}")  # Debug print
-    
-    try:
-        # Hash password
-        hashed_password = hash_password(password)
-        
-        # Store with unencrypted username for now (for testing)
-        if username in users:
-            socketio.emit('register_response', {
-                'status': 'error',
-                'message': 'Username already taken'
-            })
-            print(f"Registration failed - username taken: {username}")  # Debug print
-            return
-        
-        # Register the user
-        users[username] = {
-            'password': hashed_password,
-            'profile': {'bio': '', 'avatar': ''},
-            'rooms': []
+class ChatServer:
+    def __init__(self, host='0.0.0.0', port=5000):
+        self.host = host
+        self.port = port
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.clients = {}  # {client_socket: {'username': username, 'room': room}}
+        self.rooms = {
+            'global': set()  # Global room for all users
         }
-        save_users(users)
-        
-        print(f"Registration successful for {username}")  # Debug print
-        print(f"Updated users: {users}")  # Debug print
-        
-        socketio.emit('register_response', {
-            'status': 'success',
-            'message': 'User registered successfully'
-        })
-        
+        self.users_file = 'users.json'
+        self.load_users()
+
+    def load_users(self):
+        """Load users from JSON file"""
+        if not os.path.exists(self.users_file):
+            with open(self.users_file, 'w') as f:
+                json.dump({}, f)
+        with open(self.users_file, 'r') as f:
+            self.users = json.load(f)
+
+    def save_users(self):
+        """Save users to JSON file"""
+        try:
+            logger.info(f"Saving users to {self.users_file}")
+            logger.info(f"Current users data: {self.users}")
+            with open(self.users_file, 'w') as f:
+                json.dump(self.users, f, indent=4)
+            logger.info("Users data saved successfully")
+        except Exception as e:
+            logger.error(f"Error saving users data: {str(e)}")
+            raise  # Re-raise to handle in calling function
+
+    def hash_password(self, password):
+        """Hash a password using bcrypt"""
+        return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+    def check_password(self, password, hashed):
+        """Verify a password against its hash"""
+        return bcrypt.checkpw(password.encode(), hashed.encode())
+
+    def register_user(self, data):
+        """Register a new user"""
+        try:
+            username = data['username']
+            email = data['email']
+            password = data['password']
+            avatar_url = data['avatar_url']
+            bio = data['bio']
+
+            if username in self.users:
+                return False, "Username already exists"
+            
+            if any(user['email'] == email for user in self.users.values()):
+                return False, "Email already registered"
+
+            # Hash the password before storing
+            hashed_password = self.hash_password(password)
+
+            self.users[username] = {
+                'email': email,
+                'password': hashed_password,  # Store hashed password
+                'avatar_url': avatar_url,
+                'bio': bio
+            }
+            self.save_users()
+            return True, "Registration successful"
+        except Exception as e:
+            logger.error(f"Registration error: {e}")
+            return False, "Registration failed"
+
+    def login_user(self, data):
+        """Login a user"""
+        try:
+            username = data.get('username')
+            password = data.get('password')
+
+            if username not in self.users:
+                return False, "User not found"
+
+            if bcrypt.checkpw(password.encode(), self.users[username]['password'].encode()):
+                user_data = self.users[username]
+                return True, {
+                    'message': "Login successful",
+                    'avatar_url': user_data.get('avatar_url', ''),
+                    'bio': user_data.get('bio', '')
+                }
+            return False, "Invalid password"
+        except Exception as e:
+            logger.error(f"Login error: {e}")
+            return False, "Login failed"
+
+    def update_user_settings(self, data):
+        """Update user settings"""
+        try:
+            username = data.get('username')
+            new_password = data.get('new_password')
+            new_avatar_url = data.get('new_avatar_url')
+            new_bio = data.get('new_bio')
+            current_password = data.get('current_password')
+
+            logger.info(f"Updating settings for user: {username}")
+            logger.info(f"Current data in users: {self.users.get(username)}")
+            logger.info(f"New bio: {new_bio}")
+            logger.info(f"New avatar URL: {new_avatar_url}")
+
+            if username not in self.users:
+                logger.error(f"User {username} not found")
+                return False, "User not found"
+
+            # Verify current password
+            stored_password = self.users[username]['password']
+            logger.info(f"Verifying password for {username}")
+            
+            try:
+                password_correct = bcrypt.checkpw(current_password.encode(), stored_password.encode())
+                if not password_correct:
+                    logger.error(f"Password verification failed for {username}")
+                    return False, "Current password is incorrect"
+            except Exception as e:
+                logger.error(f"Password verification error: {str(e)}")
+                return False, f"Password verification error: {str(e)}"
+
+            # Update password if provided
+            if new_password:
+                hashed = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt())
+                self.users[username]['password'] = hashed.decode()
+                logger.info("Password updated")
+
+            # Update avatar URL if provided
+            if new_avatar_url is not None:
+                self.users[username]['avatar_url'] = new_avatar_url
+                logger.info(f"Avatar URL updated to: {new_avatar_url}")
+
+            # Update bio if provided
+            if new_bio is not None:
+                self.users[username]['bio'] = new_bio
+                logger.info(f"Bio updated to: {new_bio}")
+
+            # Save changes
+            self.save_users()
+            logger.info(f"Settings updated successfully for {username}")
+            logger.info(f"New user data: {self.users.get(username)}")
+            return True, "Settings updated successfully"
+        except Exception as e:
+            logger.error(f"Error updating settings for {username}: {str(e)}")
+            return False, f"Error updating settings: {str(e)}"
+
+    def start(self):
+        self.server_socket.bind((self.host, self.port))
+        self.server_socket.listen(5)
+        logger.info(f"Server started on {self.host}:{self.port}")
+
+        while True:
+            client_socket, address = self.server_socket.accept()
+            logger.info(f"New connection from {address}")
+            threading.Thread(target=self.handle_client, args=(client_socket,)).start()
+
+    def broadcast(self, message, room='global', exclude=None):
+        """Broadcast a message to all clients in a room"""
+        try:
+            if room not in self.rooms:
+                return
+            
+            for client in self.rooms[room]:
+                if client != exclude and client in self.clients:
+                    try:
+                        client.send(message.encode() if isinstance(message, str) else message)
+                    except Exception as e:
+                        logger.error(f"Error sending to client: {e}")
+                        self.remove_client(client)
+        except Exception as e:
+            logger.error(f"Error in broadcast: {e}")
+
+    def broadcast_message(self, data):
+        """Handle and broadcast chat messages"""
+        try:
+            username = data.get('username')
+            message = data.get('message')
+            room = data.get('room', 'global')
+            
+            if not username or not message:
+                return
+            
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            broadcast_message = {
+                'action': 'chat_message',
+                'message': f"[{timestamp}] {username}: {message}"
+            }
+            
+            if room not in self.rooms:
+                room = 'global'
+                
+            self.broadcast(json.dumps(broadcast_message), room=room)
+        except Exception as e:
+            logger.error(f"Error broadcasting message: {e}")
+
+    def handle_join_room(self, client_socket, data):
+        """Handle room joining logic"""
+        try:
+            username = data.get('username')
+            new_room = data.get('room')
+            
+            if not username or not new_room:
+                return
+            
+            if client_socket not in self.clients:
+                self.clients[client_socket] = {'username': username, 'room': 'global'}
+            
+            old_room = self.clients[client_socket]['room']
+            
+            # Remove from old room
+            if old_room in self.rooms and client_socket in self.rooms[old_room]:
+                self.rooms[old_room].remove(client_socket)
+                self.broadcast(json.dumps({
+                    'action': 'chat_message',
+                    'message': f"{username} has left the room"
+                }), room=old_room)
+            
+            # Create new room if it doesn't exist
+            if new_room not in self.rooms:
+                self.rooms[new_room] = set()
+            
+            # Add to new room
+            self.rooms[new_room].add(client_socket)
+            self.clients[client_socket]['room'] = new_room
+            self.broadcast(json.dumps({
+                'action': 'chat_message',
+                'message': f"{username} has joined the room"
+            }), room=new_room)
+            
+            # Send confirmation to client
+            client_socket.send(json.dumps({
+                'action': 'room_changed',
+                'room': new_room
+            }).encode())
+        except Exception as e:
+            logger.error(f"Error handling room join: {e}")
+
+    def remove_client(self, client_socket):
+        """Remove client and clean up their data"""
+        try:
+            if client_socket in self.clients:
+                username = self.clients[client_socket]['username']
+                room = self.clients[client_socket]['room']
+                
+                # Remove from room
+                if room in self.rooms and client_socket in self.rooms[room]:
+                    self.rooms[room].remove(client_socket)
+                    self.broadcast(json.dumps({
+                        'action': 'chat_message',
+                        'message': f"{username} has left the room"
+                    }), room=room)
+                
+                # Remove from clients
+                del self.clients[client_socket]
+            
+            client_socket.close()
+        except Exception as e:
+            logger.error(f"Error removing client: {e}")
+
+    def handle_client(self, client_socket):
+        """Handle individual client connections"""
+        try:
+            while True:
+                try:
+                    data = client_socket.recv(1024).decode()
+                    if not data:
+                        break
+
+                    logger.info(f"Received data: {data}")
+                    data = json.loads(data)
+                    action = data.get('action')
+                    logger.info(f"Processing action: {action}")
+
+                    if action == 'register':
+                        success, message = self.register_user(data)
+                        response = {'success': success, 'message': message}
+                        client_socket.send(json.dumps(response).encode())
+                        if success:
+                            # Initialize client data
+                            username = data.get('username')
+                            self.clients[client_socket] = {'username': username, 'room': 'global'}
+                            self.rooms['global'].add(client_socket)
+                        else:
+                            return
+                    
+                    elif action == 'login':
+                        success, response = self.login_user(data)
+                        if isinstance(response, dict):
+                            client_socket.send(json.dumps({
+                                'success': True,
+                                'message': response['message'],
+                                'avatar_url': response['avatar_url'],
+                                'bio': response['bio']
+                            }).encode())
+                            # Initialize client data
+                            username = data.get('username')
+                            self.clients[client_socket] = {'username': username, 'room': 'global'}
+                            self.rooms['global'].add(client_socket)
+                        else:
+                            client_socket.send(json.dumps({
+                                'success': False,
+                                'message': response
+                            }).encode())
+                        if not success:
+                            return
+                    
+                    elif action == 'update_settings':
+                        logger.info("Processing settings update")
+                        success, message = self.update_user_settings(data)
+                        response = {
+                            'success': success,
+                            'message': message
+                        }
+                        if success:
+                            user_data = self.users[data['username']]
+                            response.update({
+                                'avatar_url': user_data.get('avatar_url', ''),
+                                'bio': user_data.get('bio', '')
+                            })
+                        logger.info(f"Sending settings response: {response}")
+                        client_socket.send(json.dumps(response).encode())
+                        continue
+
+                    elif action == 'send_message':
+                        self.broadcast_message(data)
+                        continue
+
+                    elif action == 'join_room':
+                        self.handle_join_room(client_socket, data)
+                        continue
+
+                    # After successful login/register, send room list
+                    if action in ['login', 'register']:
+                        room_list = {'action': 'room_list', 'rooms': ['global']}
+                        client_socket.send(json.dumps(room_list).encode())
+
+                except json.JSONDecodeError as e:
+                    logger.error(f"JSON decode error: {e}")
+                    client_socket.send(json.dumps({
+                        'success': False,
+                        'message': 'Invalid JSON format'
+                    }).encode())
+                except Exception as e:
+                    logger.error(f"Error handling client message: {e}")
+                    client_socket.send(json.dumps({
+                        'success': False,
+                        'message': f'Server error: {str(e)}'
+                    }).encode())
+
+        except Exception as e:
+            logger.error(f"Client connection error: {e}")
+        finally:
+            logger.info("Client disconnected")
+            self.remove_client(client_socket)
+
+if __name__ == "__main__":
+    server = ChatServer()
+    try:
+        server.start()
+    except KeyboardInterrupt:
+        logger.info("Server shutting down...")
     except Exception as e:
-        print(f"Error during registration: {e}")  # Debug print
-        socketio.emit('register_response', {
-            'status': 'error',
-            'message': f'Registration error: {str(e)}'
-        })
-
-# Event handler for creating a room
-@socketio.on('create_room')
-def handle_create_room(data):
-    username = data.get('username')
-    room_name = data.get('room_name')
-    password = data.get('password', None)
-
-    if username not in users:
-        socketio.emit('room_response', {'status': 'error', 'message': 'User not found'})
-        return
-
-    if room_name in rooms:
-        socketio.emit('room_response', {'status': 'error', 'message': 'Room already exists'})
-        return
-
-    rooms[room_name] = {'password': password, 'users': [username], 'messages': []}
-    users[username]['rooms'].append(room_name)
-    save_users(users)
-    save_rooms(rooms)
-
-    socketio.emit('room_response', {'status': 'success', 'message': 'Room created successfully'})
-
-# Event handler for joining a room
-@socketio.on('join_room')
-def handle_join_room(data):
-    username = data.get('username')
-    room_name = data.get('room_name')
-    password = data.get('password', None)
-
-    if username not in users:
-        socketio.emit('room_response', {'status': 'error', 'message': 'User not found'})
-        return
-
-    if room_name not in rooms:
-        socketio.emit('room_response', {'status': 'error', 'message': 'Room does not exist'})
-        return
-
-    room = rooms[room_name]
-    
-    if room['password'] and room['password'] != password:
-        socketio.emit('room_response', {'status': 'error', 'message': 'Incorrect room password'})
-        return
-
-    if username in room['users']:
-        socketio.emit('room_response', {'status': 'error', 'message': 'User already in room'})
-        return
-
-    room['users'].append(username)
-    users[username]['rooms'].append(room_name)
-    save_users(users)
-    save_rooms(rooms)
-
-    socketio.emit('room_response', {'status': 'success', 'message': 'Joined room successfully'})
-
-# Event handler for sending messages in a room
-@socketio.on('send_message')
-def handle_send_message(data):
-    username = data.get('username')
-    room_name = data.get('room_name')
-    message = data.get('message')
-
-    if username not in users:
-        socketio.emit('message_response', {'status': 'error', 'message': 'User not found'})
-        return
-
-    if room_name not in rooms:
-        socketio.emit('message_response', {'status': 'error', 'message': 'Room does not exist'})
-        return
-
-    room = rooms[room_name]
-    if username not in room['users']:
-        socketio.emit('message_response', {'status': 'error', 'message': 'User not in room'})
-        return
-
-    # Store the message
-    room['messages'].append({'username': username, 'message': message})
-    save_rooms(rooms)
-
-    # Broadcast the message to all users
-    socketio.emit('chat_message', {
-        'username': username,
-        'message': message,
-        'room': room_name
-    })
-    
-    socketio.emit('message_response', {'status': 'success', 'message': 'Message sent successfully'})
-
-# Event handler for updating the user profile (bio and avatar)
-@socketio.on('update_profile')
-def handle_update_profile(data):
-    username = data.get('username')
-    bio = data.get('bio', '')
-    avatar = data.get('avatar', '')  # Avatar URL passed by the user
-
-    # Encrypt the username
-    encrypted_username = cipher_suite.encrypt(username.encode()).decode()
-
-    if encrypted_username not in users:
-        socketio.emit('profile_update', {'status': 'error', 'message': 'User not found'})
-        return
-
-    # Update the profile with bio and avatar URL
-    users[encrypted_username]['profile'] = {'bio': bio, 'avatar': avatar}
-    save_users(users)
-
-    socketio.emit('profile_update', {'status': 'success', 'message': 'Profile updated successfully'})
-
-# Run the app
-if __name__ == '__main__':
-    socketio.run(app, debug=True)
+        logger.error(f"Server error: {e}")
