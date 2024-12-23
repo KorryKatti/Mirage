@@ -10,16 +10,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class ChatServer:
-    def __init__(self, host='0.0.0.0', port=5000):
+    def __init__(self, host='localhost', port=12345):
         self.host = host
         self.port = port
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.clients = {}  # {client_socket: {'username': username, 'room': room}}
-        self.rooms = {
-            'global': set()  # Global room for all users
-        }
+        self.clients = {}  # socket: {'username': username, 'room': room}
+        self.rooms = {'global': set()}  # room_name: set of client sockets
+        self.server_socket = None
         self.users_file = 'users.json'
+        self.rooms_file = 'rooms.json'
+        self.room_members_file = 'room_members.json'
         self.load_users()
+        self.load_rooms()
+        self.load_room_members()
 
     def load_users(self):
         """Load users from JSON file"""
@@ -40,6 +42,67 @@ class ChatServer:
         except Exception as e:
             logger.error(f"Error saving users data: {str(e)}")
             raise  # Re-raise to handle in calling function
+
+    def load_rooms(self):
+        """Load rooms from rooms.json"""
+        try:
+            with open(self.rooms_file, 'r') as f:
+                rooms_data = json.load(f)
+                # Initialize each room from the file
+                for room_name, room_info in rooms_data.items():
+                    if room_name not in self.rooms:
+                        self.rooms[room_name] = set()
+        except FileNotFoundError:
+            # Create file if it doesn't exist
+            self.save_rooms()
+        except json.JSONDecodeError:
+            # If file is corrupted, start fresh
+            self.save_rooms()
+
+    def save_rooms(self):
+        """Save rooms to rooms.json"""
+        try:
+            rooms_data = {room: {
+                'created_at': datetime.now().isoformat(),
+                'description': '',  # You can add room descriptions later
+                'creator': '',      # You can add creator info later
+                'public': False
+            } for room in self.rooms.keys()}
+            
+            with open(self.rooms_file, 'w') as f:
+                json.dump(rooms_data, f, indent=4)
+        except Exception as e:
+            logger.error(f"Error saving rooms: {e}")
+
+    def load_room_members(self):
+        """Load room members from JSON file"""
+        try:
+            with open(self.room_members_file, 'r') as f:
+                self.room_members = json.load(f)
+        except FileNotFoundError:
+            self.room_members = {
+                "global": {
+                    "members": [],
+                    "public": True
+                }
+            }
+            self.save_room_members()
+        except json.JSONDecodeError:
+            self.room_members = {
+                "global": {
+                    "members": [],
+                    "public": True
+                }
+            }
+            self.save_room_members()
+
+    def save_room_members(self):
+        """Save room members to JSON file"""
+        try:
+            with open(self.room_members_file, 'w') as f:
+                json.dump(self.room_members, f, indent=4)
+        except Exception as e:
+            logger.error(f"Error saving room members: {e}")
 
     def hash_password(self, password):
         """Hash a password using bcrypt"""
@@ -156,15 +219,206 @@ class ChatServer:
             logger.error(f"Error updating settings for {username}: {str(e)}")
             return False, f"Error updating settings: {str(e)}"
 
-    def start(self):
-        self.server_socket.bind((self.host, self.port))
-        self.server_socket.listen(5)
-        logger.info(f"Server started on {self.host}:{self.port}")
+    def get_user_rooms(self, username):
+        """Get list of rooms available to a user"""
+        available_rooms = ['global']  # Global is always available
+        
+        for room_name, room_info in self.room_members.items():
+            if room_info.get('public', False) or username in room_info.get('members', []):
+                available_rooms.append(room_name)
+                
+        return available_rooms
 
-        while True:
-            client_socket, address = self.server_socket.accept()
-            logger.info(f"New connection from {address}")
-            threading.Thread(target=self.handle_client, args=(client_socket,)).start()
+    def create_room(self, room_name, client_socket):
+        """Create a new room"""
+        try:
+            username = self.clients[client_socket]['username']
+            
+            # Validate room name
+            if not room_name or not isinstance(room_name, str):
+                return False, "Invalid room name"
+            
+            # Clean room name
+            room_name = "".join(x for x in room_name if x.isalnum() or x in (' ', '-', '_')).strip()
+            
+            if not room_name:
+                return False, "Room name must contain valid characters"
+            
+            if room_name in self.rooms:
+                return False, "Room already exists"
+            
+            # Create the room
+            self.rooms[room_name] = set()
+            
+            # Save to rooms.json
+            with open(self.rooms_file, 'r') as f:
+                rooms_data = json.load(f)
+            
+            rooms_data[room_name] = {
+                'created_at': datetime.now().isoformat(),
+                'description': '',
+                'creator': username,
+                'public': False
+            }
+            
+            with open(self.rooms_file, 'w') as f:
+                json.dump(rooms_data, f, indent=4)
+            
+            # Update room members
+            self.room_members[room_name] = {
+                'members': [username],
+                'public': False
+            }
+            self.save_room_members()
+            
+            # Send updated room list to the creator
+            available_rooms = self.get_user_rooms(username)
+            room_update = json.dumps({
+                'action': 'room_list',
+                'rooms': available_rooms
+            })
+            client_socket.send(room_update.encode())
+            
+            return True, "Room created successfully"
+            
+        except Exception as e:
+            logger.error(f"Error creating room: {e}")
+            return False, "Server error creating room"
+
+    def handle_join_room(self, client_socket, data):
+        """Handle room joining logic"""
+        try:
+            username = data.get('username')
+            new_room = data.get('room')
+            
+            if not username or not new_room:
+                return False
+            
+            # Check if user has access to the room
+            if new_room not in self.get_user_rooms(username):
+                client_socket.send(json.dumps({
+                    'action': 'error',
+                    'message': "You don't have access to this room"
+                }).encode())
+                return False
+            
+            if client_socket not in self.clients:
+                self.clients[client_socket] = {'username': username, 'room': 'global'}
+            
+            old_room = self.clients[client_socket]['room']
+            
+            # Remove from old room
+            if old_room in self.rooms and client_socket in self.rooms[old_room]:
+                self.rooms[old_room].remove(client_socket)
+                self.broadcast(json.dumps({
+                    'action': 'chat_message',
+                    'message': f"{username} has left the room"
+                }), room=old_room)
+            
+            # Add to new room
+            if new_room not in self.rooms:
+                self.rooms[new_room] = set()
+            
+            self.rooms[new_room].add(client_socket)
+            self.clients[client_socket]['room'] = new_room
+            
+            # Add to room members if not already there
+            if username not in self.room_members[new_room]['members']:
+                self.room_members[new_room]['members'].append(username)
+                self.save_room_members()
+            
+            self.broadcast(json.dumps({
+                'action': 'chat_message',
+                'message': f"{username} has joined the room"
+            }), room=new_room)
+            
+            # Send confirmation to client
+            client_socket.send(json.dumps({
+                'action': 'room_changed',
+                'room': new_room
+            }).encode())
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error handling room join: {e}")
+            return False
+
+    def handle_explore_rooms(self, client_socket):
+        """Handle room exploration request"""
+        try:
+            username = self.clients[client_socket]['username']
+            
+            # Get all rooms
+            with open(self.rooms_file, 'r') as f:
+                rooms_data = json.load(f)
+            
+            # Format room data for client
+            room_list = []
+            for room_name, room_info in rooms_data.items():
+                room_list.append({
+                    'name': room_name,
+                    'creator': room_info.get('creator', ''),
+                    'created_at': room_info.get('created_at', ''),
+                    'description': room_info.get('description', ''),
+                    'public': room_info.get('public', False),
+                    'member_count': len(self.room_members.get(room_name, {}).get('members', [])),
+                    'is_member': username in self.room_members.get(room_name, {}).get('members', [])
+                })
+            
+            response = {
+                'action': 'explore_rooms_response',
+                'rooms': room_list
+            }
+            client_socket.send(json.dumps(response).encode())
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error handling room exploration: {e}")
+            return False
+
+    def get_room_members(self, client_socket, room_name):
+        """Get list of members in a room with their profiles"""
+        try:
+            # Load room members
+            with open(self.room_members_file, 'r') as f:
+                room_members = json.load(f)
+            
+            if room_name not in room_members:
+                response = {
+                    'action': 'error',
+                    'message': 'Room not found'
+                }
+                client_socket.send(json.dumps(response).encode())
+                return
+            
+            # Load user profiles
+            with open(self.users_file, 'r') as f:
+                users_data = json.load(f)
+            
+            # Get member profiles
+            members_data = []
+            for username in room_members[room_name]['members']:
+                if username in users_data:
+                    members_data.append({
+                        'username': username,
+                        'avatar_url': users_data[username].get('avatar_url', 'https://i.pinimg.com/736x/0c/da/40/0cda4058d21f8101ffcc223eec55c18f.jpg'),
+                        'bio': users_data[username].get('bio', 'No bio provided')
+                    })
+            
+            response = {
+                'action': 'get_room_members_response',
+                'members': members_data
+            }
+            client_socket.send(json.dumps(response).encode())
+            
+        except Exception as e:
+            logger.error(f"Error getting room members: {str(e)}")
+            response = {
+                'action': 'error',
+                'message': f"Server error: {str(e)}"
+            }
+            client_socket.send(json.dumps(response).encode())
 
     def broadcast(self, message, room='global', exclude=None):
         """Broadcast a message to all clients in a room"""
@@ -204,48 +458,6 @@ class ChatServer:
             self.broadcast(json.dumps(broadcast_message), room=room)
         except Exception as e:
             logger.error(f"Error broadcasting message: {e}")
-
-    def handle_join_room(self, client_socket, data):
-        """Handle room joining logic"""
-        try:
-            username = data.get('username')
-            new_room = data.get('room')
-            
-            if not username or not new_room:
-                return
-            
-            if client_socket not in self.clients:
-                self.clients[client_socket] = {'username': username, 'room': 'global'}
-            
-            old_room = self.clients[client_socket]['room']
-            
-            # Remove from old room
-            if old_room in self.rooms and client_socket in self.rooms[old_room]:
-                self.rooms[old_room].remove(client_socket)
-                self.broadcast(json.dumps({
-                    'action': 'chat_message',
-                    'message': f"{username} has left the room"
-                }), room=old_room)
-            
-            # Create new room if it doesn't exist
-            if new_room not in self.rooms:
-                self.rooms[new_room] = set()
-            
-            # Add to new room
-            self.rooms[new_room].add(client_socket)
-            self.clients[client_socket]['room'] = new_room
-            self.broadcast(json.dumps({
-                'action': 'chat_message',
-                'message': f"{username} has joined the room"
-            }), room=new_room)
-            
-            # Send confirmation to client
-            client_socket.send(json.dumps({
-                'action': 'room_changed',
-                'room': new_room
-            }).encode())
-        except Exception as e:
-            logger.error(f"Error handling room join: {e}")
 
     def remove_client(self, client_socket):
         """Remove client and clean up their data"""
@@ -341,9 +553,32 @@ class ChatServer:
                         self.handle_join_room(client_socket, data)
                         continue
 
+                    elif action == 'create_room':
+                        success, message = self.create_room(data.get('room_name'), client_socket)
+                        response = {
+                            'action': 'create_room_response',
+                            'success': success,
+                            'message': message
+                        }
+                        client_socket.send(json.dumps(response).encode())
+                        continue
+
+                    elif action == 'explore_rooms':
+                        self.handle_explore_rooms(client_socket)
+                        continue
+
+                    elif action == 'get_room_members':
+                        self.get_room_members(client_socket, data.get('room'))
+                        continue
+
                     # After successful login/register, send room list
                     if action in ['login', 'register']:
-                        room_list = {'action': 'room_list', 'rooms': ['global']}
+                        username = self.clients[client_socket]['username']
+                        available_rooms = self.get_user_rooms(username)
+                        room_list = {
+                            'action': 'room_list',
+                            'rooms': available_rooms
+                        }
                         client_socket.send(json.dumps(room_list).encode())
 
                 except json.JSONDecodeError as e:
@@ -364,6 +599,17 @@ class ChatServer:
         finally:
             logger.info("Client disconnected")
             self.remove_client(client_socket)
+
+    def start(self):
+        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket.bind((self.host, self.port))
+        self.server_socket.listen(5)
+        logger.info(f"Server started on {self.host}:{self.port}")
+
+        while True:
+            client_socket, address = self.server_socket.accept()
+            logger.info(f"New connection from {address}")
+            threading.Thread(target=self.handle_client, args=(client_socket,)).start()
 
 if __name__ == "__main__":
     server = ChatServer()

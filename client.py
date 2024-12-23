@@ -7,25 +7,28 @@ from datetime import datetime
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QTextEdit, QStackedWidget, QMessageBox,
-    QScrollArea, QButtonGroup, QDialog, QFormLayout
+    QScrollArea, QButtonGroup, QDialog, QFormLayout, QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QObject, QTimer, QThread
-from PyQt6.QtGui import QIcon, QDesktopServices
+from PyQt6.QtGui import QIcon, QDesktopServices, QPixmap
+import requests
 
 class ChatClient:
-    def __init__(self, host='localhost', port=5000):
-        self.host = host
-        self.port = port
-        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    def __init__(self):
+        self.socket = None
         self.username = None
         self.avatar_url = None
         self.bio = None
+        self.server_url = 'localhost:12345'  # Changed to use full URL format
 
     def connect(self):
         try:
-            self.socket.connect((self.host, self.port))
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            host, port = self.server_url.split(':')
+            self.socket.connect((host, int(port)))
             return True
         except Exception as e:
+            print(f"Connection error: {e}")
             return False
 
     def send_message(self, message):
@@ -41,6 +44,10 @@ class ChatClient:
 class MessageReceiver(QObject):
     message_received = pyqtSignal(str)
     room_changed = pyqtSignal(str)
+    room_list_updated = pyqtSignal(list)
+    room_created = pyqtSignal(bool, str)
+    explore_rooms_response = pyqtSignal(list)
+    member_list_response = pyqtSignal(list)
     
     def __init__(self, socket):
         super().__init__()
@@ -62,7 +69,16 @@ class MessageReceiver(QObject):
                         self.room_changed.emit(data['room'])
                     elif data.get('action') == 'chat_message':
                         self.message_received.emit(data['message'])
-                    # Ignore other JSON messages (like settings responses)
+                    elif data.get('action') == 'room_list':
+                        self.room_list_updated.emit(data['rooms'])
+                    elif data.get('action') == 'create_room_response':
+                        self.room_created.emit(data['success'], data['message'])
+                    elif data.get('action') == 'explore_rooms_response':
+                        self.explore_rooms_response.emit(data['rooms'])
+                    elif data.get('action') == 'get_room_members_response':
+                        self.member_list_response.emit(data['members'])
+                    elif data.get('action') == 'error':
+                        QMessageBox.warning(None, "Error", data['message'])
                 except json.JSONDecodeError:
                     # If it's not JSON, treat as plain chat message
                     self.message_received.emit(message)
@@ -109,6 +125,9 @@ class MainWindow(QMainWindow):
         self.message_receiver = None
         self.receiver_thread = None
         self.settings_thread = None
+        self.room_buttons = {}  # Initialize room_buttons dictionary
+        self.button_group = QButtonGroup()  # Initialize button group
+        self.button_group.setExclusive(True)
         
         # Create messages directory if it doesn't exist
         self.messages_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'messages')
@@ -245,134 +264,112 @@ class MainWindow(QMainWindow):
 
     def create_chat_screen(self):
         self.chat_screen = QWidget()
-        layout = QVBoxLayout(self.chat_screen)
+        layout = QHBoxLayout()
 
-        h_layout = QHBoxLayout()
-        layout.addLayout(h_layout)
-
-        room_widget = QWidget()
-        room_widget.setFixedWidth(200)
-        room_widget.setStyleSheet("""
-            QWidget {
-                background-color: #1f1d2e;
-                border-radius: 4px;
-                padding: 10px;
-            }
-        """)
-        room_layout = QVBoxLayout(room_widget)
-
-        room_label = QLabel("Rooms")
-        room_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #e0def4; margin-bottom: 10px;")
-        room_layout.addWidget(room_label)
-
-        self.room_buttons = {}
-        self.button_group = QButtonGroup()
-        self.button_group.setExclusive(True)
+        # Left panel for room list
+        left_panel = QWidget()
+        left_layout = QVBoxLayout()
         
-        h_layout.addWidget(room_widget)
+        # Room list label
+        room_label = QLabel("Your Rooms")
+        room_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #e0def4;")
+        left_layout.addWidget(room_label)
+        
+        # Room list
+        self.room_list = QVBoxLayout()
+        left_layout.addLayout(self.room_list)
+        left_layout.addStretch()
+        
+        # Settings button
+        settings_btn = QPushButton("Settings")
+        settings_btn.clicked.connect(self.show_settings_dialog)
+        left_layout.addWidget(settings_btn)
+        
+        # Member list button
+        member_list_btn = QPushButton("Member List")
+        member_list_btn.clicked.connect(self.show_member_list)
+        left_layout.addWidget(member_list_btn)
+        
+        left_panel.setLayout(left_layout)
+        left_panel.setFixedWidth(200)
+        layout.addWidget(left_panel)
 
-        chat_widget = QWidget()
-        chat_layout = QVBoxLayout(chat_widget)
-
+        # Center chat area
+        center_panel = QWidget()
+        center_layout = QVBoxLayout()
+        
+        # Current room label
         self.current_room_label = QLabel("global")
-        self.current_room_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #e0def4; margin-bottom: 10px;")
-        chat_layout.addWidget(self.current_room_label)
-
+        self.current_room_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        center_layout.addWidget(self.current_room_label)
+        
+        # Chat display
         self.chat_display = QTextEdit()
         self.chat_display.setReadOnly(True)
-        self.chat_display.setStyleSheet("""
-            QTextEdit {
-                background-color: #1f1d2e;
-                color: #e0def4;
-                border: none;
-                padding: 10px;
-                border-radius: 4px;
-            }
-        """)
-        chat_layout.addWidget(self.chat_display)
-
+        center_layout.addWidget(self.chat_display)
+        
+        # Message input
         input_layout = QHBoxLayout()
         self.message_input = QLineEdit()
-        self.message_input.setPlaceholderText("Type your message...")
-        self.message_input.setStyleSheet(self.get_input_style())
         self.message_input.returnPressed.connect(self.send_message)
+        send_button = QPushButton("Send")
+        send_button.clicked.connect(self.send_message)
         input_layout.addWidget(self.message_input)
+        input_layout.addWidget(send_button)
+        center_layout.addLayout(input_layout)
+        
+        center_panel.setLayout(center_layout)
+        layout.addWidget(center_panel)
 
-        send_btn = QPushButton("Send")
-        send_btn.setStyleSheet(self.get_button_style())
-        send_btn.clicked.connect(self.send_message)
-        input_layout.addWidget(send_btn)
+        # Right panel for room management
+        right_panel = QWidget()
+        right_layout = QVBoxLayout()
+        
+        # Room management label
+        manage_label = QLabel("Room Management")
+        manage_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #e0def4;")
+        right_layout.addWidget(manage_label)
+        
+        # Create room button
+        create_room_btn = QPushButton("Create New Room")
+        create_room_btn.clicked.connect(self.create_room_dialog)
+        right_layout.addWidget(create_room_btn)
+        
+        # Explore rooms button
+        explore_rooms_btn = QPushButton("Explore Rooms")
+        explore_rooms_btn.clicked.connect(self.explore_rooms_dialog)
+        right_layout.addWidget(explore_rooms_btn)
+        
+        right_layout.addStretch()
+        right_panel.setLayout(right_layout)
+        right_panel.setFixedWidth(200)
+        layout.addWidget(right_panel)
 
-        chat_layout.addLayout(input_layout)
-        h_layout.addWidget(chat_widget)
-
-        sidebar_widget = QWidget()
-        sidebar_widget.setFixedWidth(60)
-        sidebar_widget.setStyleSheet("""
-            QWidget {
-                background-color: #1f1d2e;
-                border-radius: 4px;
-                padding: 5px;
-            }
-        """)
-        sidebar_layout = QVBoxLayout(sidebar_widget)
-        sidebar_layout.setSpacing(10)
-
-        all_rooms_btn = QPushButton("🏠")
-        create_room_btn = QPushButton("➕")
-        search_room_btn = QPushButton("🔍")
-        settings_btn = QPushButton("⚙️")
-
-        sidebar_button_style = """
-            QPushButton {
-                background-color: #26233a;
-                color: #e0def4;
-                border: none;
-                font-size: 20px;
-                padding: 10px;
-                border-radius: 4px;
-                min-width: 40px;
-                min-height: 40px;
-                max-width: 40px;
-                max-height: 40px;
-            }
-            QPushButton:hover {
-                background-color: #2d2a41;
-            }
-            QPushButton:pressed {
-                background-color: #9ccfd8;
-            }
-        """
-
-        for btn in [all_rooms_btn, create_room_btn, search_room_btn]:
-            btn.setStyleSheet(sidebar_button_style)
-            sidebar_layout.addWidget(btn)
-
-        sidebar_layout.addStretch()
-
-        settings_btn.setStyleSheet(sidebar_button_style)
-        settings_btn.clicked.connect(self.show_settings_dialog)
-        sidebar_layout.addWidget(settings_btn)
-
-        h_layout.addWidget(sidebar_widget)
-
-        self.chat_screen.setStyleSheet("background-color: #191724;")
+        self.chat_screen.setLayout(layout)
         self.stacked_widget.addWidget(self.chat_screen)
 
     def create_room_buttons(self, rooms):
+        """Create buttons for each room"""
+        # Clear existing buttons first
+        while self.room_list.count():
+            item = self.room_list.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        
         for btn in self.room_buttons.values():
-            btn.setParent(None)
+            self.button_group.removeButton(btn)
         self.room_buttons.clear()
-        self.button_group.setExclusive(False)
-        for button in self.button_group.buttons():
-            self.button_group.removeButton(button)
-        self.button_group.setExclusive(True)
-
-        room_widget = self.chat_screen.layout().itemAt(0).layout().itemAt(0).widget()
-        room_layout = room_widget.layout()
-
-        for room in rooms:
+        
+        # Create new buttons
+        for room in sorted(set(rooms)):  # Use set to remove duplicates
             btn = QPushButton(room)
+            btn.setCheckable(True)
+            self.button_group.addButton(btn)
+            btn.clicked.connect(lambda checked, r=room: self.join_room(r))
+            self.room_buttons[room] = btn
+            self.room_list.addWidget(btn)
+            
+            # Set button style
             btn.setStyleSheet("""
                 QPushButton {
                     background-color: #26233a;
@@ -391,16 +388,12 @@ class MainWindow(QMainWindow):
                     color: #191724;
                 }
             """)
-            btn.setCheckable(True)
-            self.button_group.addButton(btn)
-            btn.clicked.connect(lambda checked, r=room: self.join_room(r))
-            self.room_buttons[room] = btn
-            room_layout.addWidget(btn)
-
-        if 'general' in self.room_buttons:
-            self.room_buttons['general'].setChecked(True)
-
-        room_layout.addStretch()
+        
+        # Select global room by default if no room is selected
+        if not self.button_group.checkedButton() and 'global' in self.room_buttons:
+            self.room_buttons['global'].setChecked(True)
+            
+        self.room_list.addStretch()
 
     def load_room_messages(self, room):
         """Load messages for a specific room"""
@@ -794,10 +787,259 @@ class MainWindow(QMainWindow):
         self.message_receiver = MessageReceiver(self.client.socket)
         self.message_receiver.message_received.connect(self.display_message)
         self.message_receiver.room_changed.connect(self.update_current_room)
+        self.message_receiver.room_list_updated.connect(self.create_room_buttons)
+        self.message_receiver.room_created.connect(self.handle_room_created)
+        self.message_receiver.explore_rooms_response.connect(self.update_room_list)
+        self.message_receiver.member_list_response.connect(self.update_member_list)
         
         self.receiver_thread = threading.Thread(target=self.message_receiver.run)
         self.receiver_thread.daemon = True
         self.receiver_thread.start()
+
+    def create_room_dialog(self):
+        """Show dialog to create a new room"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Create New Room")
+        dialog.setModal(True)
+        
+        layout = QVBoxLayout()
+        
+        # Room name input
+        name_label = QLabel("Room Name:")
+        name_input = QLineEdit()
+        name_input.setPlaceholderText("Enter room name")
+        layout.addWidget(name_label)
+        layout.addWidget(name_input)
+        
+        # Buttons
+        button_layout = QHBoxLayout()
+        create_button = QPushButton("Create")
+        cancel_button = QPushButton("Cancel")
+        
+        button_layout.addWidget(create_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+        
+        dialog.setLayout(layout)
+        
+        # Connect buttons
+        create_button.clicked.connect(lambda: self.handle_room_creation(name_input.text(), dialog))
+        cancel_button.clicked.connect(dialog.reject)
+        
+        dialog.exec()
+
+    def handle_room_creation(self, room_name, dialog):
+        """Handle room creation request"""
+        if not room_name.strip():
+            QMessageBox.warning(self, "Error", "Room name cannot be empty")
+            return
+        
+        data = {
+            'action': 'create_room',
+            'room_name': room_name.strip()
+        }
+        
+        try:
+            self.client.send_message(json.dumps(data))
+            # Response will be handled by message receiver
+            dialog.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to create room: {str(e)}")
+
+    def handle_room_created(self, success, message):
+        """Handle room creation response"""
+        if success:
+            QMessageBox.information(self, "Success", message)
+        else:
+            QMessageBox.warning(self, "Error", message)
+
+    def explore_rooms_dialog(self):
+        """Show dialog to explore available rooms"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Explore Rooms")
+        dialog.setModal(True)
+        dialog.resize(500, 400)
+        
+        layout = QVBoxLayout()
+        
+        # Room list widget
+        self.room_list_widget = QTableWidget()
+        self.room_list_widget.setColumnCount(5)
+        self.room_list_widget.setHorizontalHeaderLabels(["Room Name", "Creator", "Members", "Status", "Action"])
+        header = self.room_list_widget.horizontalHeader()
+        for i in range(5):  # Set each section to be stretched
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
+        
+        layout.addWidget(self.room_list_widget)
+        
+        # Request rooms from server
+        self.client.send_message(json.dumps({
+            'action': 'explore_rooms'
+        }))
+        
+        dialog.setLayout(layout)
+        dialog.exec()
+
+    def update_room_list(self, rooms_data):
+        """Update the room exploration dialog with room data"""
+        if not hasattr(self, 'room_list_widget'):
+            return
+            
+        self.room_list_widget.setRowCount(len(rooms_data))
+        
+        for i, room in enumerate(rooms_data):
+            # Room name
+            name_item = QTableWidgetItem(room['name'])
+            name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.room_list_widget.setItem(i, 0, name_item)
+            
+            # Creator
+            creator_item = QTableWidgetItem(room.get('creator', 'Unknown'))
+            creator_item.setFlags(creator_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.room_list_widget.setItem(i, 1, creator_item)
+            
+            # Members count
+            member_count = len(room.get('members', []))
+            members_item = QTableWidgetItem(str(member_count))
+            members_item.setFlags(members_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.room_list_widget.setItem(i, 2, members_item)
+            
+            # Status
+            status_item = QTableWidgetItem("Public" if room.get('public', False) else "Private")
+            status_item.setFlags(status_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.room_list_widget.setItem(i, 3, status_item)
+            
+            # Action buttons container
+            action_widget = QWidget()
+            action_layout = QHBoxLayout()
+            action_layout.setContentsMargins(4, 4, 4, 4)
+            
+            # Join button
+            join_btn = QPushButton("Join")
+            join_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #31748f;
+                    color: #e0def4;
+                    border: none;
+                    padding: 5px 10px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #3e8fb0;
+                }
+            """)
+            join_btn.clicked.connect(lambda checked, r=room['name']: self.join_room(r))
+            action_layout.addWidget(join_btn)
+            
+            action_widget.setLayout(action_layout)
+            self.room_list_widget.setCellWidget(i, 4, action_widget)
+
+    def show_member_list(self):
+        """Show list of members in current room"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Room Members")
+        dialog.setModal(True)
+        dialog.resize(300, 400)
+        
+        layout = QVBoxLayout()
+        
+        # Request member list from server
+        self.client.send_message(json.dumps({
+            'action': 'get_room_members',
+            'room': self.current_room_label.text()
+        }))
+        
+        # Create scrollable member list
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_content = QWidget()
+        self.member_list_layout = QVBoxLayout(scroll_content)
+        
+        scroll.setWidget(scroll_content)
+        layout.addWidget(scroll)
+        
+        dialog.setLayout(layout)
+        dialog.exec()
+        
+    def update_member_list(self, members_data):
+        """Update member list with received data"""
+        # Clear existing members
+        while self.member_list_layout.count():
+            item = self.member_list_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+                
+        for member in members_data:
+            # Create member button
+            btn = QPushButton(member['username'])
+            btn.clicked.connect(lambda checked, m=member: self.show_member_profile(m))
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #26233a;
+                    color: #e0def4;
+                    border: none;
+                    padding: 10px;
+                    border-radius: 4px;
+                    text-align: left;
+                    margin: 2px;
+                }
+                QPushButton:hover {
+                    background-color: #2d2a41;
+                }
+            """)
+            self.member_list_layout.addWidget(btn)
+            
+        self.member_list_layout.addStretch()
+
+    def show_member_profile(self, member_data):
+        """Show member profile dialog"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle(f"Profile: {member_data['username']}")
+        dialog.setModal(True)
+        dialog.resize(300, 400)
+        
+        layout = QVBoxLayout()
+        
+        # Avatar
+        avatar_label = QLabel()
+        avatar_pixmap = QPixmap()
+        avatar_pixmap.loadFromData(requests.get(member_data['avatar_url']).content)
+        avatar_label.setPixmap(avatar_pixmap.scaled(150, 150, Qt.AspectRatioMode.KeepAspectRatio))
+        avatar_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(avatar_label)
+        
+        # Username
+        username_label = QLabel(f"Username: {member_data['username']}")
+        username_label.setStyleSheet("color: #e0def4; font-size: 14px;")
+        username_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(username_label)
+        
+        # Bio
+        bio_label = QLabel(f"Bio: {member_data['bio']}")
+        bio_label.setStyleSheet("color: #e0def4; font-size: 12px;")
+        bio_label.setWordWrap(True)
+        bio_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(bio_label)
+        
+        # Open Profile button
+        open_profile_btn = QPushButton("Open Profile")
+        open_profile_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #31748f;
+                color: #e0def4;
+                border: none;
+                padding: 10px;
+                border-radius: 4px;
+                margin-top: 20px;
+            }
+            QPushButton:hover {
+                background-color: #3e8fb0;
+            }
+        """)
+        layout.addWidget(open_profile_btn)
+        
+        dialog.setLayout(layout)
+        dialog.exec()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
