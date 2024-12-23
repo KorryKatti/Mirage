@@ -3,14 +3,16 @@ import json
 import socket
 import threading
 import os
+import base64
 from datetime import datetime
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QTextEdit, QStackedWidget, QMessageBox,
-    QScrollArea, QButtonGroup, QDialog, QFormLayout, QTableWidget, QTableWidgetItem, QHeaderView
+    QScrollArea, QButtonGroup, QDialog, QFormLayout, QTableWidget, QTableWidgetItem, QHeaderView,
+    QFileDialog, QProgressBar, QProgressDialog
 )
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QObject, QTimer, QThread
-from PyQt6.QtGui import QIcon, QDesktopServices, QPixmap
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QObject, QTimer, QThread, Qt
+from PyQt6.QtGui import QIcon, QDesktopServices, QPixmap, QTextCursor
 import requests
 
 class ChatClient:
@@ -40,6 +42,66 @@ class ChatClient:
 
     def close(self):
         self.socket.close()
+
+    def send_file(self, room, file_path):
+        """
+        Send file link to room (deprecated, now handled by FileUploader)
+        """
+        try:
+            # Validate file size (limit to 50MB)
+            file_size = os.path.getsize(file_path)
+            if file_size > 50 * 1024 * 1024:  # 50MB
+                print("File too large")
+                return False
+            
+            # Prepare file transfer message
+            file_info = {
+                'type': 'file_transfer',
+                'room': room,
+                'filename': os.path.basename(file_path)
+            }
+            
+            # Send file info via socket
+            self.socket.send(json.dumps(file_info).encode('utf-8'))
+            return True
+        except Exception as e:
+            print(f"File transfer error: {e}")
+            return False
+
+    def upload_file(self, file_path):
+        """
+        Deprecated method, now handled by FileUploader
+        """
+        return None
+
+    def receive_file(self, file_info):
+        """
+        Receive and save a file from another user.
+        
+        :param file_info: Dictionary containing file transfer information
+        :return: Path to saved file or None
+        """
+        try:
+            # Download file from transfer.sh
+            response = requests.get(file_info['download_link'])
+            
+            if response.status_code == 200:
+                # Create downloads directory if it doesn't exist
+                downloads_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'downloads')
+                os.makedirs(downloads_dir, exist_ok=True)
+                
+                # Save file
+                file_path = os.path.join(downloads_dir, file_info['filename'])
+                with open(file_path, 'wb') as file:
+                    file.write(response.content)
+                
+                return file_path
+            else:
+                print(f"File download failed: {response.status_code}")
+                return None
+        except Exception as e:
+            print(f"File receive error: {e}")
+            return None
 
 class MessageReceiver(QObject):
     message_received = pyqtSignal(str)
@@ -79,6 +141,13 @@ class MessageReceiver(QObject):
                         self.member_list_response.emit(data['members'])
                     elif data.get('action') == 'error':
                         QMessageBox.warning(None, "Error", data['message'])
+                    elif data.get('type') == 'file_transfer':
+                        # Handle file transfer
+                        file_path = self.socket.recv(1024).decode()
+                        file_data = self.socket.recv(int(file_path)).decode()
+                        file_info = json.loads(file_data)
+                        file_path = self.socket.recv(int(file_info['filesize'])).decode()
+                        print(f"Received file: {file_info['filename']}")
                 except json.JSONDecodeError:
                     # If it's not JSON, treat as plain chat message
                     self.message_received.emit(message)
@@ -91,6 +160,150 @@ class MessageReceiver(QObject):
 
     def run(self):
         self.receive_messages()
+
+class FileUploader(QThread):
+    """
+    Threaded file uploader with progress tracking
+    """
+    upload_progress = pyqtSignal(int)
+    upload_complete = pyqtSignal(str, str)  # filename, download_link
+    upload_error = pyqtSignal(str)
+
+    def __init__(self, file_path):
+        super().__init__()
+        self.file_path = file_path
+
+    def run(self):
+        """
+        Upload file in a separate thread
+        """
+        try:
+            # Open file in binary mode
+            file_size = os.path.getsize(self.file_path)
+            filename = os.path.basename(self.file_path)
+
+            # Use requests with streaming to track progress
+            with open(self.file_path, 'rb') as file:
+                # Use a different, more reliable file sharing service
+                response = requests.post(
+                    'https://file.io', 
+                    files={'file': (filename, file)},
+                    timeout=60
+                )
+
+            if response.status_code == 200:
+                # Parse download link from response
+                download_link = response.json().get('link')
+                self.upload_complete.emit(filename, download_link)
+            else:
+                self.upload_error.emit(f"Upload failed: {response.status_code}")
+
+        except requests.exceptions.RequestException as e:
+            self.upload_error.emit(f"Network error: {str(e)}")
+        except Exception as e:
+            self.upload_error.emit(f"Upload error: {str(e)}")
+
+class DownloadableFileButton(QPushButton):
+    """
+    Custom button for downloadable files with embedded download link
+    """
+    def __init__(self, filename, download_link, parent=None):
+        super().__init__(f"📥 Download: {filename}", parent)
+        self.filename = filename
+        self.download_link = download_link
+        self.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                border: none;
+                padding: 5px 10px;
+                text-align: left;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        self.clicked.connect(self.download_file)
+
+    def download_file(self):
+        """
+        Download the file when button is clicked
+        """
+        try:
+            # Open file save dialog
+            save_path, _ = QFileDialog.getSaveFileName(
+                self, 
+                "Save Downloaded File", 
+                self.filename, 
+                "All Files (*.*)"
+            )
+            
+            if not save_path:
+                return  # User cancelled
+            
+            # Download file in a thread
+            self.downloader = FileDownloader(self.download_link, save_path)
+            self.downloader.download_complete.connect(self.on_download_complete)
+            self.downloader.download_error.connect(self.on_download_error)
+            self.downloader.start()
+        except Exception as e:
+            QMessageBox.warning(self, "Download Error", str(e))
+
+    def on_download_complete(self, save_path):
+        """
+        Show success message when download is complete
+        """
+        QMessageBox.information(
+            self, 
+            "Download Complete", 
+            f"File saved to: {save_path}"
+        )
+
+    def on_download_error(self, error):
+        """
+        Show error message if download fails
+        """
+        QMessageBox.warning(
+            self, 
+            "Download Failed", 
+            str(error)
+        )
+
+class FileDownloader(QThread):
+    """
+    Threaded file downloader
+    """
+    download_complete = pyqtSignal(str)
+    download_error = pyqtSignal(str)
+
+    def __init__(self, download_url, save_path):
+        super().__init__()
+        self.download_url = download_url
+        self.save_path = save_path
+
+    def run(self):
+        """
+        Download file in a separate thread
+        """
+        try:
+            # Download file
+            response = requests.get(self.download_url, timeout=30)
+            
+            if response.status_code == 200:
+                # Save file
+                with open(self.save_path, 'wb') as file:
+                    file.write(response.content)
+                
+                # Emit success signal
+                self.download_complete.emit(self.save_path)
+            else:
+                self.download_error.emit(f"Download failed: {response.status_code}")
+        
+        except requests.exceptions.RequestException as e:
+            self.download_error.emit(f"Network error: {str(e)}")
+        except Exception as e:
+            self.download_error.emit(f"Download error: {str(e)}")
 
 class SettingsUpdater(QObject):
     update_finished = pyqtSignal(bool, str, dict)
@@ -314,8 +527,12 @@ class MainWindow(QMainWindow):
         self.message_input.returnPressed.connect(self.send_message)
         send_button = QPushButton("Send")
         send_button.clicked.connect(self.send_message)
+        file_transfer_btn = QPushButton("📁 Send File")
+        file_transfer_btn.setStyleSheet(self.get_button_style())
+        file_transfer_btn.clicked.connect(self.send_file_dialog)
         input_layout.addWidget(self.message_input)
         input_layout.addWidget(send_button)
+        input_layout.addWidget(file_transfer_btn)
         center_layout.addLayout(input_layout)
         
         center_panel.setLayout(center_layout)
@@ -1040,6 +1257,69 @@ class MainWindow(QMainWindow):
         
         dialog.setLayout(layout)
         dialog.exec()
+
+    def send_file_dialog(self):
+        """
+        Open a file dialog to select and send a file.
+        """
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select File to Upload")
+        if file_path:
+            # Create and start the file uploader in a separate thread
+            self.file_uploader = FileUploader(file_path)
+            self.file_uploader.upload_progress.connect(self.update_upload_progress)
+            self.file_uploader.upload_complete.connect(self.on_upload_complete)
+            self.file_uploader.upload_error.connect(self.on_upload_error)
+            
+            # Create a progress dialog
+            self.upload_progress_dialog = QProgressDialog("Uploading file...", "Cancel", 0, 100, self)
+            self.upload_progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+            self.upload_progress_dialog.setAutoClose(True)
+            self.upload_progress_dialog.setAutoReset(True)
+            self.upload_progress_dialog.canceled.connect(self.file_uploader.terminate)
+            
+            # Start the upload thread
+            self.file_uploader.start()
+            self.upload_progress_dialog.show()
+
+    def update_upload_progress(self, progress):
+        """
+        Update the upload progress dialog
+        """
+        if hasattr(self, 'upload_progress_dialog'):
+            self.upload_progress_dialog.setValue(progress)
+
+    def on_upload_complete(self, filename, download_link):
+        """
+        Handle successful file upload
+        """
+        # Close the progress dialog
+        if hasattr(self, 'upload_progress_dialog'):
+            self.upload_progress_dialog.close()
+        
+        # Display the downloadable file in the chat
+        self.display_downloadable_file(filename, download_link)
+
+    def on_upload_error(self, error):
+        """
+        Handle file upload error
+        """
+        # Close the progress dialog
+        if hasattr(self, 'upload_progress_dialog'):
+            self.upload_progress_dialog.close()
+        
+        # Show error message
+        QMessageBox.warning(self, "Upload Error", str(error))
+
+    def display_downloadable_file(self, filename, download_link):
+        """
+        Display a downloadable file link in the chat
+        
+        :param filename: Name of the file
+        :param download_link: URL to download the file
+        """
+        # Insert the file information into the chat display
+        file_message = f"📁 File Uploaded: {filename}\nDownload Link: {download_link}"
+        self.chat_display.append(file_message)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
