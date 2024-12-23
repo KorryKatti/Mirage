@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QObject, QTimer, QThread, Qt
 from PyQt6.QtGui import QIcon, QDesktopServices, QPixmap, QTextCursor
 import requests
+from requests_toolbelt.multipart import MultipartEncoder, MultipartEncoderMonitor
 
 class ChatClient:
     def __init__(self):
@@ -182,12 +183,26 @@ class FileUploader(QThread):
             file_size = os.path.getsize(self.file_path)
             filename = os.path.basename(self.file_path)
 
+            # Track upload progress
+            def progress_callback(monitor):
+                progress = int((monitor.bytes_read / file_size) * 100)
+                self.upload_progress.emit(progress)
+
             # Use requests with streaming to track progress
             with open(self.file_path, 'rb') as file:
+                # Create a MultipartEncoder for progress tracking
+                encoder = MultipartEncoder(
+                    fields={'file': (filename, file)}
+                )
+                
+                # Create a MultipartEncoderMonitor to track progress
+                monitor = MultipartEncoderMonitor(encoder, progress_callback)
+
                 # Use a different, more reliable file sharing service
                 response = requests.post(
                     'https://file.io', 
-                    files={'file': (filename, file)},
+                    data=monitor,
+                    headers={'Content-Type': monitor.content_type},
                     timeout=60
                 )
 
@@ -654,11 +669,15 @@ class MainWindow(QMainWindow):
         """Join a new room"""
         if room != self.current_room_label.text():  # Only join if not already in the room
             print(f"Joining room: {room}")  # Debug print
-            self.client.send_message(json.dumps({
-                'action': 'join_room',
-                'username': self.client.username,
-                'room': room
-            }))
+            try:
+                self.client.send_message(json.dumps({
+                    'action': 'join_room',
+                    'username': self.client.username,
+                    'room': room
+                }))
+            except Exception as e:
+                QMessageBox.warning(self, "Room Join Error", f"Failed to join room: {str(e)}")
+                print(f"Room join error: {e}")
 
     def handle_login(self):
         if not self.client.connect():
@@ -1296,7 +1315,11 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'upload_progress_dialog'):
             self.upload_progress_dialog.close()
         
-        # Display the downloadable file in the chat
+        # Simulate sending a message with the download link
+        self.message_input.setText(f"Download Link for {filename}: {download_link}")
+        self.send_message()  # Call the existing send_message method
+        
+        # Display the file in local chat
         self.display_downloadable_file(filename, download_link)
 
     def on_upload_error(self, error):

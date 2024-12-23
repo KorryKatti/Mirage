@@ -258,7 +258,7 @@ class ChatServer:
                 'created_at': datetime.now().isoformat(),
                 'description': '',
                 'creator': username,
-                'public': False
+                'public': True  # Changed to True by default
             }
             
             with open(self.rooms_file, 'w') as f:
@@ -267,7 +267,7 @@ class ChatServer:
             # Update room members
             self.room_members[room_name] = {
                 'members': [username],
-                'public': False
+                'public': True  # Changed to True by default
             }
             self.save_room_members()
             
@@ -295,7 +295,11 @@ class ChatServer:
                 return False
             
             # Check if user has access to the room
-            if new_room not in self.get_user_rooms(username):
+            user_rooms = self.get_user_rooms(username)
+            room_info = self.room_members.get(new_room, {})
+            is_public = room_info.get('public', False)
+            
+            if new_room not in user_rooms and not is_public:
                 client_socket.send(json.dumps({
                     'action': 'error',
                     'message': "You don't have access to this room"
@@ -447,10 +451,18 @@ class ChatServer:
                 return
             
             timestamp = datetime.now().strftime("%H:%M:%S")
-            broadcast_message = {
-                'action': 'chat_message',
-                'message': f"[{timestamp}] {username}: {message}"
-            }
+            
+            # Special handling for file upload messages
+            if '📁 File Uploaded:' in message:
+                broadcast_message = {
+                    'action': 'chat_message',
+                    'message': f"{message}"  # Keep the full file upload message
+                }
+            else:
+                broadcast_message = {
+                    'action': 'chat_message',
+                    'message': f"[{timestamp}] {username}: {message}"
+                }
             
             if room not in self.rooms:
                 room = 'global'

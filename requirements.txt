@@ -3,4 +3,5 @@ flask
 flask-socketio
 cryptography
 requests
+requests-toolbelt
 bcrypt==4.0.1
