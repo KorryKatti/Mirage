@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QSplitter, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QLineEdit, QTextEdit, QStackedWidget, QMessageBox,
     QScrollArea, QButtonGroup, QDialog, QFormLayout, QTableWidget, QTableWidgetItem, QHeaderView,
-    QFileDialog, QProgressBar, QProgressDialog
+    QFileDialog, QProgressBar, QProgressDialog, QInputDialog, QDialogButtonBox
 )
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal, QObject, QTimer, QThread, Qt
 from PyQt6.QtGui import QIcon, QDesktopServices, QPixmap, QTextCursor
@@ -320,6 +320,15 @@ class FileDownloader(QThread):
         except Exception as e:
             self.download_error.emit(f"Download error: {str(e)}")
 
+class RoomJoinHandler(QObject):
+    password_required = pyqtSignal(str)
+    join_error = pyqtSignal(str)
+    room_changed = pyqtSignal(str)
+
+class PasswordHandler(QObject):
+    show_password_dialog = pyqtSignal(str, str)
+    join_room_with_password = pyqtSignal(str, str)
+
 class SettingsUpdater(QObject):
     update_finished = pyqtSignal(bool, str, dict)
 
@@ -356,6 +365,18 @@ class MainWindow(QMainWindow):
         self.room_buttons = {}  # Initialize room_buttons dictionary
         self.button_group = QButtonGroup()  # Initialize button group
         self.button_group.setExclusive(True)
+        self.last_attempted_room = None  # Initialize last_attempted_room
+        
+        # Create password handler
+        self.password_handler = PasswordHandler()
+        self.password_handler.show_password_dialog.connect(self._show_password_dialog)
+        self.password_handler.join_room_with_password.connect(self._join_room_with_password)
+        
+        # Create room join handler
+        self.room_join_handler = RoomJoinHandler()
+        self.room_join_handler.password_required.connect(self.handle_password_prompt)
+        self.room_join_handler.join_error.connect(self.handle_join_error)
+        self.room_join_handler.room_changed.connect(self.update_current_room)
         
         # Create messages directory if it doesn't exist
         self.messages_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'messages')
@@ -667,17 +688,48 @@ class MainWindow(QMainWindow):
 
     def join_room(self, room):
         """Join a new room"""
-        if room != self.current_room_label.text():  # Only join if not already in the room
-            print(f"Joining room: {room}")  # Debug print
+        if room == self.current_room_label.text():
+            return
+        
+        # Send join request to server
+        join_request = json.dumps({
+            'action': 'join_room',
+            'username': self.client.username,
+            'room': room
+        })
+        
+        try:
+            self.client.send_message(join_request)
+        except Exception as e:
+            QMessageBox.warning(self, "Room Join Error", f"Failed to join room: {str(e)}")
+
+    def handle_password_prompt(self, error_message):
+        """Handle password prompt for private rooms"""
+        password, ok = QInputDialog.getText(
+            self, 
+            "Private Room", 
+            error_message, 
+            QLineEdit.EchoMode.Password
+        )
+        
+        if ok and password and self.last_attempted_room:
+            # Send join request with password
+            join_request = json.dumps({
+                'action': 'join_room',
+                'username': self.client.username,
+                'room': self.last_attempted_room,
+                'password': password
+            })
+            
             try:
-                self.client.send_message(json.dumps({
-                    'action': 'join_room',
-                    'username': self.client.username,
-                    'room': room
-                }))
+                # Use a separate thread to send message
+                threading.Thread(target=self._send_join_request, args=(join_request,), daemon=True).start()
             except Exception as e:
-                QMessageBox.warning(self, "Room Join Error", f"Failed to join room: {str(e)}")
-                print(f"Room join error: {e}")
+                self.room_join_handler.join_error.emit(f"Failed to join room: {str(e)}")
+
+    def handle_join_error(self, error_message):
+        """Handle join room errors"""
+        QMessageBox.warning(self, "Room Join Error", error_message)
 
     def handle_login(self):
         if not self.client.connect():
@@ -1032,62 +1084,99 @@ class MainWindow(QMainWindow):
         self.receiver_thread.daemon = True
         self.receiver_thread.start()
 
-    def create_room_dialog(self):
-        """Show dialog to create a new room"""
+    def process_server_message(self, message):
+        """Process messages from the server"""
+        try:
+            data = json.loads(message)
+            action = data.get('action')
+
+            if action == 'room_changed':
+                self.update_current_room(data['room'])
+            elif action == 'chat_message':
+                self.display_message(data['message'])
+            elif action == 'room_list':
+                # Update room buttons when receiving room list
+                self.create_room_buttons(data['rooms'])
+            elif action == 'create_room_response':
+                # Only show success message, don't display in chat
+                QMessageBox.information(self, "Room Creation", data.get('message', 'Room created successfully'))
+            elif action == 'explore_rooms_response':
+                self.update_room_list(data['rooms'])
+            elif action == 'get_room_members_response':
+                self.update_member_list(data['members'])
+            elif action == 'error':
+                error_message = data.get('message', 'Unknown error')
+                QMessageBox.warning(self, "Error", error_message)
+
+        except json.JSONDecodeError:
+            # If it's not JSON, treat as plain chat message
+            self.display_message(message)
+        except Exception as e:
+            print(f"Error processing server message: {e}")
+
+    def _show_password_dialog(self, room, error_message):
+        """Thread-safe password dialog"""
         dialog = QDialog(self)
-        dialog.setWindowTitle("Create New Room")
+        dialog.setWindowTitle("Private Room")
         dialog.setModal(True)
         
         layout = QVBoxLayout()
         
-        # Room name input
-        name_label = QLabel("Room Name:")
-        name_input = QLineEdit()
-        name_input.setPlaceholderText("Enter room name")
-        layout.addWidget(name_label)
-        layout.addWidget(name_input)
+        # Show error message if any
+        if error_message:
+            error_label = QLabel(error_message)
+            error_label.setStyleSheet("color: red;")
+            error_label.setWordWrap(True)
+            layout.addWidget(error_label)
+        
+        # Password input
+        password_label = QLabel(f"Enter password for room '{room}':")
+        layout.addWidget(password_label)
+        
+        password_input = QLineEdit()
+        password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        layout.addWidget(password_input)
         
         # Buttons
-        button_layout = QHBoxLayout()
-        create_button = QPushButton("Create")
-        cancel_button = QPushButton("Cancel")
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | 
+            QDialogButtonBox.StandardButton.Cancel
+        )
         
-        button_layout.addWidget(create_button)
-        button_layout.addWidget(cancel_button)
-        layout.addLayout(button_layout)
+        def on_accept():
+            password = password_input.text()
+            if password:
+                # Emit signal to join room with password
+                self.password_handler.join_room_with_password.emit(room, password)
+            dialog.accept()
+        
+        button_box.accepted.connect(on_accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
         
         dialog.setLayout(layout)
-        
-        # Connect buttons
-        create_button.clicked.connect(lambda: self.handle_room_creation(name_input.text(), dialog))
-        cancel_button.clicked.connect(dialog.reject)
-        
         dialog.exec()
 
-    def handle_room_creation(self, room_name, dialog):
-        """Handle room creation request"""
-        if not room_name.strip():
-            QMessageBox.warning(self, "Error", "Room name cannot be empty")
-            return
-        
-        data = {
-            'action': 'create_room',
-            'room_name': room_name.strip()
-        }
+    def _join_room_with_password(self, room, password):
+        """Join room with provided password"""
+        join_request = json.dumps({
+            'action': 'join_room',
+            'username': self.client.username,
+            'room': room,
+            'password': password
+        })
         
         try:
-            self.client.send_message(json.dumps(data))
-            # Response will be handled by message receiver
-            dialog.accept()
+            self.client.send_message(join_request)
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to create room: {str(e)}")
+            QMessageBox.warning(self, "Error", f"Failed to join room: {str(e)}")
 
     def handle_room_created(self, success, message):
         """Handle room creation response"""
         if success:
-            QMessageBox.information(self, "Success", message)
+            QMessageBox.information(self, "Room Created", f"Room created successfully: {message}")
         else:
-            QMessageBox.warning(self, "Error", message)
+            QMessageBox.warning(self, "Room Creation Failed", message)
 
     def explore_rooms_dialog(self):
         """Show dialog to explore available rooms"""
@@ -1343,6 +1432,43 @@ class MainWindow(QMainWindow):
         # Insert the file information into the chat display
         file_message = f"📁 File Uploaded: {filename}\nDownload Link: {download_link}"
         self.chat_display.append(file_message)
+
+    def create_room_dialog(self):
+        """Show dialog to create a new room"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Create New Room")
+        
+        layout = QFormLayout()
+        
+        # Room name input
+        room_name_input = QLineEdit()
+        room_name_input.setPlaceholderText("Enter room name")
+        layout.addRow("Room Name:", room_name_input)
+        
+        # Buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | 
+            QDialogButtonBox.StandardButton.Cancel
+        )
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addRow(button_box)
+        
+        dialog.setLayout(layout)
+        
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            room_name = room_name_input.text().strip()
+            
+            if not room_name:
+                QMessageBox.warning(self, "Invalid Room", "Room name cannot be empty")
+                return
+            
+            # Send room creation request
+            room_creation_request = json.dumps({
+                'action': 'create_room',
+                'room_name': room_name
+            })
+            self.client.send_message(room_creation_request)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
