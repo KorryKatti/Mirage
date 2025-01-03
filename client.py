@@ -1431,9 +1431,48 @@ class MainWindow(QMainWindow):
                 'bio': self.client.bio
             }
         
+        # Request full profile data from server
+        profile_request = {
+            'action': 'get_user_profile',
+            'username': member_data['username']
+        }
+        self.client.send_message(json.dumps(profile_request))
+        
+        # Receive profile data
+        buffer = b''
+        profile_data = None
+        try:
+            while True:
+                chunk = self.client.socket.recv(1024)
+                if not chunk:
+                    break
+                
+                buffer += chunk
+                try:
+                    profile_data = json.loads(buffer.decode())
+                    break
+                except json.JSONDecodeError:
+                    if len(chunk) < 1024:
+                        break
+        except Exception as e:
+            print(f"Error receiving profile data: {e}")
+            return
+        
         # Create a temporary HTML file for the profile
         import tempfile
         import webbrowser
+        
+        # Prepare comments HTML
+        comments_html = ''
+        if profile_data and 'comments' in profile_data:
+            for comment in profile_data['comments']:
+                comments_html += f'''
+                <div class="comment">
+                    <strong>{comment['username']}</strong>
+                    <p>{comment['comment']}</p>
+                    <small>{comment['timestamp']}</small>
+                </div>
+                '''
         
         # HTML template for the profile page
         profile_html = f'''
@@ -1441,21 +1480,21 @@ class MainWindow(QMainWindow):
         <html lang="en">
         <head>
             <meta charset="UTF-8">
-            <title>{member_data['username']}'s Profile</title>
+            <title>{profile_data['username']}'s Profile</title>
             <style>
                 body {{
                     font-family: Arial, sans-serif;
-                    max-width: 600px;
+                    max-width: 800px;
                     margin: 0 auto;
                     padding: 20px;
                     background-color: #f0f0f0;
-                    text-align: center;
                 }}
                 .profile-container {{
                     background-color: white;
                     border-radius: 10px;
                     box-shadow: 0 4px 6px rgba(0,0,0,0.1);
                     padding: 30px;
+                    margin-bottom: 20px;
                 }}
                 .avatar {{
                     width: 200px;
@@ -1472,15 +1511,114 @@ class MainWindow(QMainWindow):
                 .bio {{
                     color: #666;
                     line-height: 1.6;
+                    margin-bottom: 20px;
+                }}
+                .comments-section {{
+                    background-color: #f9f9f9;
+                    border-radius: 10px;
+                    padding: 20px;
+                }}
+                .comment {{
+                    border-bottom: 1px solid #eee;
+                    padding: 10px 0;
+                }}
+                .comment:last-child {{
+                    border-bottom: none;
+                }}
+                #comment-form {{
+                    margin-top: 20px;
+                    display: flex;
+                    flex-direction: column;
+                }}
+                #comment-input {{
+                    margin-bottom: 10px;
+                    padding: 10px;
+                    border: 1px solid #ddd;
+                    border-radius: 5px;
+                }}
+                #submit-comment {{
+                    background-color: #31748f;
+                    color: white;
+                    border: none;
+                    padding: 10px;
+                    border-radius: 5px;
+                    cursor: pointer;
                 }}
             </style>
         </head>
         <body>
             <div class="profile-container">
-                <img src="{member_data['avatar_url']}" alt="Profile Avatar" class="avatar">
-                <h1 class="username">{member_data['username']}</h1>
-                <p class="bio">{member_data['bio'] or 'No bio provided'}</p>
+                <img src="{profile_data['avatar_url']}" alt="Profile Avatar" class="avatar">
+                <h1 class="username">{profile_data['username']}</h1>
+                <p class="bio">{profile_data['bio'] or 'No bio provided'}</p>
             </div>
+            
+            <div class="comments-section">
+                <h2>Activity Board</h2>
+                <div id="comments-container">
+                    {comments_html}
+                </div>
+                
+                <form id="comment-form">
+                    <textarea id="comment-input" placeholder="Leave a comment..." rows="4" maxlength="500"></textarea>
+                    <button type="submit" id="submit-comment">Post Comment</button>
+                </form>
+            </div>
+            
+            <script>
+                const currentUsername = {json.dumps(self.client.username)};
+                const targetUsername = {json.dumps(profile_data['username'])};
+                
+                document.getElementById('comment-form').addEventListener('submit', function(e) {{
+                    e.preventDefault();
+                    const commentInput = document.getElementById('comment-input');
+                    const comment = commentInput.value.trim();
+                    
+                    if (comment) {{
+                        // Send comment to server
+                        const commentData = {{
+                            action: 'add_profile_comment',
+                            username: currentUsername,
+                            target_user: targetUsername,
+                            comment: comment
+                        }};
+                        
+                        // Use WebSocket to send comment
+                        const socket = new WebSocket('ws://localhost:12345');
+                        
+                        socket.onopen = function() {{
+                            socket.send(JSON.stringify(commentData));
+                        }};
+                        
+                        socket.onmessage = function(event) {{
+                            const response = JSON.parse(event.data);
+                            
+                            if (response.action === 'profile_comment_added') {{
+                                // Add comment to UI
+                                const commentsContainer = document.getElementById('comments-container');
+                                const newComment = document.createElement('div');
+                                newComment.className = 'comment';
+                                newComment.innerHTML = `
+                                    <strong>${{response.comment.username}}</strong>
+                                    <p>${{response.comment.comment}}</p>
+                                    <small>${{response.comment.timestamp}}</small>
+                                `;
+                                commentsContainer.insertBefore(newComment, commentsContainer.firstChild);
+                                commentInput.value = '';
+                            }} else if (response.action === 'error') {{
+                                alert(response.message);
+                            }}
+                            
+                            socket.close();
+                        }};
+                        
+                        socket.onerror = function(error) {{
+                            console.error('WebSocket Error:', error);
+                            alert('Failed to send comment. Please try again.');
+                        }};
+                    }}
+                }});
+            </script>
         </body>
         </html>
         '''
