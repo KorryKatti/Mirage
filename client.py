@@ -104,6 +104,19 @@ class ChatClient:
             print(f"File receive error: {e}")
             return None
 
+    def submit_profile_comment(self, comment_data):
+        """
+        Submit a profile comment via the existing socket connection
+        
+        :param comment_data: JSON string containing comment details
+        """
+        try:
+            # Send comment to server
+            self.client.send_message(comment_data)
+            print("Comment submitted successfully")
+        except Exception as e:
+            print(f"Error submitting comment: {e}")
+
 class MessageReceiver(QObject):
     message_received = pyqtSignal(str)
     room_changed = pyqtSignal(str)
@@ -163,60 +176,63 @@ class MessageReceiver(QObject):
         self.receive_messages()
 
 class FileUploader(QThread):
-    """
-    Threaded file uploader with progress tracking
-    """
     upload_progress = pyqtSignal(int)
-    upload_complete = pyqtSignal(str, str)  # filename, download_link
+    upload_complete = pyqtSignal(str, str)
     upload_error = pyqtSignal(str)
 
-    def __init__(self, file_path):
+    def __init__(self, file_path, client_socket, username, current_room):
         super().__init__()
         self.file_path = file_path
+        self.client_socket = client_socket
+        self.username = username
+        self.current_room = current_room
 
     def run(self):
-        """
-        Upload file in a separate thread
-        """
         try:
-            # Open file in binary mode
-            file_size = os.path.getsize(self.file_path)
+            # Get file details
+            import os
             filename = os.path.basename(self.file_path)
+            filesize = os.path.getsize(self.file_path)
 
-            # Track upload progress
-            def progress_callback(monitor):
-                progress = int((monitor.bytes_read / file_size) * 100)
-                self.upload_progress.emit(progress)
+            # Prepare file transfer metadata
+            file_transfer_data = {
+                'action': 'file_transfer',
+                'filename': filename,
+                'filesize': filesize,
+                'sender': self.username,
+                'room': self.current_room
+            }
 
-            # Use requests with streaming to track progress
-            with open(self.file_path, 'rb') as file:
-                # Create a MultipartEncoder for progress tracking
-                encoder = MultipartEncoder(
-                    fields={'file': (filename, file)}
+            # Send metadata
+            self.client_socket.send_message(json.dumps(file_transfer_data))
+
+            # Open and send file contents
+            with open(self.file_path, 'rb') as f:
+                bytes_sent = 0
+                while True:
+                    chunk = f.read(4096)
+                    if not chunk:
+                        break
+                    self.client_socket.socket.send(chunk)
+                    bytes_sent += len(chunk)
+                    progress = int((bytes_sent / filesize) * 100)
+                    self.upload_progress.emit(progress)
+
+            # Wait for server confirmation
+            response = self.client_socket.socket.recv(1024).decode()
+            response_data = json.loads(response)
+
+            if response_data.get('action') == 'file_transfer_complete':
+                # Emit success signal with original filename and unique filename
+                self.upload_complete.emit(
+                    filename, 
+                    response_data.get('unique_filename', filename)
                 )
-                
-                # Create a MultipartEncoderMonitor to track progress
-                monitor = MultipartEncoderMonitor(encoder, progress_callback)
-
-                # Use a different, more reliable file sharing service
-                response = requests.post(
-                    'https://file.io', 
-                    data=monitor,
-                    headers={'Content-Type': monitor.content_type},
-                    timeout=60
-                )
-
-            if response.status_code == 200:
-                # Parse download link from response
-                download_link = response.json().get('link')
-                self.upload_complete.emit(filename, download_link)
             else:
-                self.upload_error.emit(f"Upload failed: {response.status_code}")
+                self.upload_error.emit("File transfer failed")
 
-        except requests.exceptions.RequestException as e:
-            self.upload_error.emit(f"Network error: {str(e)}")
         except Exception as e:
-            self.upload_error.emit(f"Upload error: {str(e)}")
+            self.upload_error.emit(str(e))
 
 class DownloadableFileButton(QPushButton):
     """
@@ -1431,272 +1447,14 @@ class MainWindow(QMainWindow):
                 'bio': self.client.bio
             }
         
-        # Request full profile data from server
-        profile_request = {
-            'action': 'get_user_profile',
-            'username': member_data['username']
-        }
-        self.client.send_message(json.dumps(profile_request))
-        
-        # Receive profile data
-        buffer = b''
-        profile_data = None
-        try:
-            while True:
-                chunk = self.client.socket.recv(1024)
-                if not chunk:
-                    break
-                
-                buffer += chunk
-                try:
-                    profile_data = json.loads(buffer.decode())
-                    break
-                except json.JSONDecodeError:
-                    if len(chunk) < 1024:
-                        break
-        except Exception as e:
-            print(f"Error receiving profile data: {e}")
-            return
-        
-        # Create a temporary HTML file for the profile
-        import tempfile
+        # Open profile in web browser
         import webbrowser
         
-        # Prepare comments HTML
-        comments_html = ''
-        if profile_data and 'comments' in profile_data:
-            for comment in profile_data['comments']:
-                comments_html += f'''
-                <div class="comment">
-                    <strong>{comment['username']}</strong>
-                    <p>{comment['comment']}</p>
-                    <small>{comment['timestamp']}</small>
-                </div>
-                '''
+        # Construct URL with current user as a query parameter
+        profile_url = f"http://localhost:5000/profile/{member_data['username']}?current_user={self.client.username}"
         
-        # HTML template for the profile page
-        profile_html = f'''
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <title>{profile_data['username']}'s Profile</title>
-            <style>
-                body {{
-                    font-family: Arial, sans-serif;
-                    max-width: 800px;
-                    margin: 0 auto;
-                    padding: 20px;
-                    background-color: #f0f0f0;
-                }}
-                .profile-container {{
-                    background-color: white;
-                    border-radius: 10px;
-                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                    padding: 30px;
-                    margin-bottom: 20px;
-                }}
-                .avatar {{
-                    width: 200px;
-                    height: 200px;
-                    border-radius: 50%;
-                    object-fit: cover;
-                    margin-bottom: 20px;
-                }}
-                .username {{
-                    font-size: 24px;
-                    color: #333;
-                    margin-bottom: 10px;
-                }}
-                .bio {{
-                    color: #666;
-                    line-height: 1.6;
-                    margin-bottom: 20px;
-                }}
-                .comments-section {{
-                    background-color: #f9f9f9;
-                    border-radius: 10px;
-                    padding: 20px;
-                }}
-                .comment {{
-                    border-bottom: 1px solid #eee;
-                    padding: 10px 0;
-                }}
-                .comment:last-child {{
-                    border-bottom: none;
-                }}
-                #comment-form {{
-                    margin-top: 20px;
-                    display: flex;
-                    flex-direction: column;
-                }}
-                #comment-input {{
-                    margin-bottom: 10px;
-                    padding: 10px;
-                    border: 1px solid #ddd;
-                    border-radius: 5px;
-                }}
-                #submit-comment {{
-                    background-color: #31748f;
-                    color: white;
-                    border: none;
-                    padding: 10px;
-                    border-radius: 5px;
-                    cursor: pointer;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="profile-container">
-                <img src="{profile_data['avatar_url']}" alt="Profile Avatar" class="avatar">
-                <h1 class="username">{profile_data['username']}</h1>
-                <p class="bio">{profile_data['bio'] or 'No bio provided'}</p>
-            </div>
-            
-            <div class="comments-section">
-                <h2>Activity Board</h2>
-                <div id="comments-container">
-                    {comments_html}
-                </div>
-                
-                <form id="comment-form">
-                    <textarea id="comment-input" placeholder="Leave a comment..." rows="4" maxlength="500"></textarea>
-                    <button type="submit" id="submit-comment">Post Comment</button>
-                </form>
-            </div>
-            
-            <script>
-                const currentUsername = {json.dumps(self.client.username)};
-                const targetUsername = {json.dumps(profile_data['username'])};
-                
-                document.getElementById('comment-form').addEventListener('submit', function(e) {{
-                    e.preventDefault();
-                    const commentInput = document.getElementById('comment-input');
-                    const comment = commentInput.value.trim();
-                    
-                    if (comment) {{
-                        // Send comment to server
-                        const commentData = {{
-                            action: 'add_profile_comment',
-                            username: currentUsername,
-                            target_user: targetUsername,
-                            comment: comment
-                        }};
-                        
-                        // Use WebSocket to send comment
-                        const socket = new WebSocket('ws://localhost:12345');
-                        
-                        socket.onopen = function() {{
-                            socket.send(JSON.stringify(commentData));
-                        }};
-                        
-                        socket.onmessage = function(event) {{
-                            const response = JSON.parse(event.data);
-                            
-                            if (response.action === 'profile_comment_added') {{
-                                // Add comment to UI
-                                const commentsContainer = document.getElementById('comments-container');
-                                const newComment = document.createElement('div');
-                                newComment.className = 'comment';
-                                newComment.innerHTML = `
-                                    <strong>${{response.comment.username}}</strong>
-                                    <p>${{response.comment.comment}}</p>
-                                    <small>${{response.comment.timestamp}}</small>
-                                `;
-                                commentsContainer.insertBefore(newComment, commentsContainer.firstChild);
-                                commentInput.value = '';
-                            }} else if (response.action === 'error') {{
-                                alert(response.message);
-                            }}
-                            
-                            socket.close();
-                        }};
-                        
-                        socket.onerror = function(error) {{
-                            console.error('WebSocket Error:', error);
-                            alert('Failed to send comment. Please try again.');
-                        }};
-                    }}
-                }});
-            </script>
-        </body>
-        </html>
-        '''
-        
-        # Create a temporary file
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html') as f:
-            f.write(profile_html)
-            temp_file_path = f.name
-        
-        # Open the profile in the default web browser
-        webbrowser.open(f'file://{temp_file_path}')
-
-    def send_file_dialog(self):
-        """
-        Open a file dialog to select and send a file.
-        """
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select File to Upload")
-        if file_path:
-            # Create and start the file uploader in a separate thread
-            self.file_uploader = FileUploader(file_path)
-            self.file_uploader.upload_progress.connect(self.update_upload_progress)
-            self.file_uploader.upload_complete.connect(self.on_upload_complete)
-            self.file_uploader.upload_error.connect(self.on_upload_error)
-            
-            # Create a progress dialog
-            self.upload_progress_dialog = QProgressDialog("Uploading file...", "Cancel", 0, 100, self)
-            self.upload_progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
-            self.upload_progress_dialog.setAutoClose(True)
-            self.upload_progress_dialog.setAutoReset(True)
-            self.upload_progress_dialog.canceled.connect(self.file_uploader.terminate)
-            
-            # Start the upload thread
-            self.file_uploader.start()
-            self.upload_progress_dialog.show()
-
-    def update_upload_progress(self, progress):
-        """
-        Update the upload progress dialog
-        """
-        if hasattr(self, 'upload_progress_dialog'):
-            self.upload_progress_dialog.setValue(progress)
-
-    def on_upload_complete(self, filename, download_link):
-        """
-        Handle successful file upload
-        """
-        # Close the progress dialog
-        if hasattr(self, 'upload_progress_dialog'):
-            self.upload_progress_dialog.close()
-        
-        # Simulate sending a message with the download link
-        self.message_input.setText(f"Download Link for {filename}: {download_link}")
-        self.send_message()  # Call the existing send_message method
-        
-        # Display the file in local chat
-        self.display_downloadable_file(filename, download_link)
-
-    def on_upload_error(self, error):
-        """
-        Handle file upload error
-        """
-        # Close the progress dialog
-        if hasattr(self, 'upload_progress_dialog'):
-            self.upload_progress_dialog.close()
-        
-        # Show error message
-        QMessageBox.warning(self, "Upload Error", str(error))
-
-    def display_downloadable_file(self, filename, download_link):
-        """
-        Display a downloadable file link in the chat
-        
-        :param filename: Name of the file
-        :param download_link: URL to download the file
-        """
-        # Insert the file information into the chat display
-        file_message = f"📁 File Uploaded: {filename}\nDownload Link: {download_link}"
-        self.chat_display.append(file_message)
+        # Open the profile page in the default web browser
+        webbrowser.open(profile_url)
 
     def create_room_dialog(self):
         """Show dialog to create a new room"""
@@ -1734,6 +1492,84 @@ class MainWindow(QMainWindow):
                 'room_name': room_name
             })
             self.client.send_message(room_creation_request)
+
+    def send_file_dialog(self):
+        """
+        Open a file dialog to select and send a file.
+        """
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select File to Upload")
+        if file_path:
+            # Create and start the file uploader in a separate thread
+            self.file_uploader = FileUploader(
+                file_path, 
+                self.client.socket, 
+                self.client.username,  
+                self.current_room_label.text()
+            )
+            self.file_uploader.upload_progress.connect(self.update_upload_progress)
+            self.file_uploader.upload_complete.connect(self.on_upload_complete)
+            self.file_uploader.upload_error.connect(self.on_upload_error)
+            
+            # Create a progress dialog
+            self.upload_progress_dialog = QProgressDialog("Uploading file...", "Cancel", 0, 100, self)
+            self.upload_progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+            self.upload_progress_dialog.setAutoClose(True)
+            self.upload_progress_dialog.setAutoReset(True)
+            self.upload_progress_dialog.canceled.connect(self.file_uploader.terminate)
+            
+            # Start the upload thread
+            self.file_uploader.start()
+            self.upload_progress_dialog.show()
+
+    def update_upload_progress(self, progress):
+        """
+        Update the upload progress dialog
+        """
+        if hasattr(self, 'upload_progress_dialog'):
+            self.upload_progress_dialog.setValue(progress)
+
+    def on_upload_complete(self, filename, unique_filename):
+        """
+        Handle successful file upload
+        
+        :param filename: Original filename
+        :param unique_filename: Unique filename on the server
+        """
+        # Close the progress dialog
+        if hasattr(self, 'upload_progress_dialog'):
+            self.upload_progress_dialog.close()
+        
+        # Construct a message about the file
+        file_message = f"📁 File Uploaded: {filename}"
+        
+        # Send a message to the chat about the file
+        self.message_input.setText(file_message)
+        self.send_message()  # Call the existing send_message method
+        
+        # Display the file in local chat
+        self.display_downloadable_file(filename, unique_filename)
+
+    def on_upload_error(self, error):
+        """
+        Handle file upload error
+        """
+        # Close the progress dialog
+        if hasattr(self, 'upload_progress_dialog'):
+            self.upload_progress_dialog.close()
+        
+        # Show error message
+        QMessageBox.warning(self, "Upload Error", str(error))
+
+    def display_downloadable_file(self, filename, unique_filename):
+        """
+        Display a downloadable file link in the chat
+        
+        :param filename: Name of the file
+        :param unique_filename: Unique filename on the server
+        """
+        # Insert the file information into the chat display
+        file_message = f"📁 File Uploaded: {filename}\nDownload Link: {unique_filename}"
+        self.chat_display.append(file_message)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
