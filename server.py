@@ -1,3 +1,8 @@
+import sys
+sys.path.append('/home/korry/Documents/github/mirage')
+
+from web_server import WebServer
+
 import socket
 import threading
 import json
@@ -585,6 +590,10 @@ class ChatServer:
                 self.get_user_profile(client_socket, data)
                 return
 
+            elif action == 'file_transfer':
+                self.handle_file_transfer(client_socket, data)
+                return
+
         except json.JSONDecodeError as e:
             logger.error(f"JSON decode error: {e}")
             client_socket.send(json.dumps({
@@ -598,6 +607,69 @@ class ChatServer:
                 'message': f'Server error: {str(e)}'
             }).encode())
 
+    def handle_file_transfer(self, client_socket, data):
+        """
+        Handle incoming file transfer
+        
+        :param client_socket: Socket of the client sending the file
+        :param data: Dictionary containing file transfer metadata
+        """
+        try:
+            # Validate file transfer data
+            filename = data.get('filename')
+            filesize = data.get('filesize')
+            sender = data.get('sender')
+            room = data.get('room', 'global')
+            
+            if not all([filename, filesize, sender]):
+                self.send_error(client_socket, "Invalid file transfer metadata")
+                return
+            
+            # Create directory for file transfers if it doesn't exist
+            import os
+            transfer_dir = os.path.join(os.path.dirname(__file__), 'file_transfers')
+            os.makedirs(transfer_dir, exist_ok=True)
+            
+            # Generate unique filename to prevent overwriting
+            import uuid
+            unique_filename = f"{uuid.uuid4()}_{filename}"
+            file_path = os.path.join(transfer_dir, unique_filename)
+            
+            # Prepare to receive file
+            with open(file_path, 'wb') as f:
+                bytes_received = 0
+                while bytes_received < filesize:
+                    chunk = client_socket.recv(min(4096, filesize - bytes_received))
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    bytes_received += len(chunk)
+            
+            # Broadcast file transfer to room
+            file_message = {
+                'action': 'file_received',
+                'filename': filename,
+                'unique_filename': unique_filename,
+                'sender': sender,
+                'filesize': filesize,
+                'room': room
+            }
+            
+            # Broadcast to all clients in the room
+            self.broadcast(json.dumps(file_message), room=room)
+            
+            # Send success response to sender
+            response = {
+                'action': 'file_transfer_complete',
+                'filename': filename,
+                'unique_filename': unique_filename
+            }
+            client_socket.send(json.dumps(response).encode())
+        
+        except Exception as e:
+            logging.error(f"Error handling file transfer: {e}")
+            self.send_error(client_socket, "File transfer failed")
+
     def handle_profile_comment(self, client_socket, data):
         try:
             # Validate comment data
@@ -605,22 +677,28 @@ class ChatServer:
             target_user = data.get('target_user')
             comment_text = data.get('comment')
             
+            logging.info(f"Received comment: username={username}, target_user={target_user}, comment={comment_text}")
+            
             if not all([username, target_user, comment_text]):
+                logging.error("Invalid comment data: missing fields")
                 self.send_error(client_socket, "Invalid comment data")
                 return
             
             # Validate that the commenting user exists
             if username not in self.users:
+                logging.error(f"Sender user not found: {username}")
                 self.send_error(client_socket, "Sender user not found")
                 return
             
             # Validate target user exists
             if target_user not in self.users:
+                logging.error(f"Target user not found: {target_user}")
                 self.send_error(client_socket, "Target user not found")
                 return
             
             # Sanitize comment length
             if len(comment_text) > 500:
+                logging.error("Comment too long")
                 self.send_error(client_socket, "Comment too long (max 500 characters)")
                 return
             
@@ -645,8 +723,23 @@ class ChatServer:
             # Limit comments to last 50
             self.users[target_user]['comments'] = self.users[target_user]['comments'][:50]
             
-            # Save updated user data
-            self.save_users()
+            # Save updated user data IMMEDIATELY
+            try:
+                with open(self.users_file, 'r') as f:
+                    all_users = json.load(f)
+                
+                # Update the specific user's comments
+                all_users[target_user]['comments'] = self.users[target_user]['comments']
+                
+                # Write back to file
+                with open(self.users_file, 'w') as f:
+                    json.dump(all_users, f, indent=4)
+                
+                logging.info(f"Successfully saved comment for user {target_user}")
+            except Exception as save_error:
+                logging.error(f"Error saving comments: {save_error}")
+                logging.error(f"Current users data: {self.users}")
+                logging.error(f"Target user data: {self.users.get(target_user, 'Not found')}")
             
             # Send success response
             response = {
@@ -658,31 +751,217 @@ class ChatServer:
             client_socket.send(json.dumps(response).encode())
         
         except Exception as e:
-            logging.error(f"Error handling profile comment: {e}")
+            logging.error(f"Unexpected error handling profile comment: {e}")
             self.send_error(client_socket, "Failed to add comment")
 
     def get_user_profile(self, client_socket, data):
+        """
+        Retrieve and send user profile data
+        
+        :param client_socket: Socket to send the response
+        :param data: Dictionary containing profile request data
+        """
         try:
+            # Extract username from request
             username = data.get('username')
             
-            if username not in self.users:
-                self.send_error(client_socket, "User not found")
+            # Validate username
+            if not username or username not in self.users:
+                self.send_error(client_socket, f"User {username} not found")
                 return
             
-            # Retrieve user profile data including comments
-            user_profile = {
-                'action': 'user_profile',
-                'username': username,
-                'avatar_url': self.users[username].get('avatar_url', ''),
-                'bio': self.users[username].get('bio', ''),
-                'comments': self.users[username].get('comments', [])
-            }
+            # Retrieve user data
+            user_data = self.users[username]
             
-            client_socket.send(json.dumps(user_profile).encode())
+            # Render the profile page
+            self.render_profile_page(client_socket, username)
         
         except Exception as e:
-            logging.error(f"Error retrieving user profile: {e}")
-            self.send_error(client_socket, "Failed to retrieve profile")
+            logging.error(f"Error getting user profile: {e}")
+            self.send_error(client_socket, "Failed to retrieve user profile")
+
+    def render_profile_page(self, client_socket, username):
+        """
+        Render an HTML profile page for a given user
+        
+        :param client_socket: Socket to send the response
+        :param username: Username of the profile to render
+        """
+        try:
+            # Retrieve user data
+            if username not in self.users:
+                self.send_error(client_socket, f"User {username} not found")
+                return
+            
+            user_data = self.users[username]
+            
+            # Determine the current user's username from the client socket
+            current_username = self.clients.get(client_socket, {}).get('username', 'Anonymous')
+            
+            # Prepare comments HTML
+            comments_html = ''
+            comments = user_data.get('comments', [])
+            for comment in comments:
+                comments_html += f'''
+                <div class="comment">
+                    <strong>{comment['username']}</strong>
+                    <p>{comment['comment']}</p>
+                    <small>{comment['timestamp']}</small>
+                </div>
+                '''
+            
+            # Create full HTML profile page
+            profile_html = f'''
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <title>{username}'s Profile</title>
+                <style>
+                    body {{
+                        font-family: Arial, sans-serif;
+                        max-width: 600px;
+                        margin: 0 auto;
+                        padding: 20px;
+                        background-color: #f4f4f4;
+                    }}
+                    .profile-container {{
+                        background-color: white;
+                        border-radius: 8px;
+                        padding: 20px;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                        text-align: center;
+                    }}
+                    .avatar {{
+                        width: 150px;
+                        height: 150px;
+                        border-radius: 50%;
+                        object-fit: cover;
+                        margin-bottom: 15px;
+                    }}
+                    .comments-section {{
+                        margin-top: 20px;
+                        background-color: white;
+                        border-radius: 8px;
+                        padding: 15px;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                    }}
+                    .comment {{
+                        border-bottom: 1px solid #eee;
+                        padding: 10px 0;
+                    }}
+                    .comment:last-child {{
+                        border-bottom: none;
+                    }}
+                    #comment-form {{
+                        margin-top: 15px;
+                    }}
+                    #comment-input {{
+                        width: 100%;
+                        padding: 10px;
+                        margin-bottom: 10px;
+                        border: 1px solid #ddd;
+                        border-radius: 4px;
+                    }}
+                    #submit-comment {{
+                        background-color: #4CAF50;
+                        color: white;
+                        border: none;
+                        padding: 10px 15px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="profile-container">
+                    <img src="{user_data.get('avatar_url', 'https://via.placeholder.com/150')}" alt="Profile Avatar" class="avatar">
+                    <h1 class="username">{username}</h1>
+                    <p class="bio">{user_data.get('bio', 'No bio provided')}</p>
+                </div>
+                
+                <div class="comments-section">
+                    <h2>Activity Board</h2>
+                    <form id="comment-form">
+                        <textarea id="comment-input" placeholder="Leave a comment..." rows="4" maxlength="500"></textarea>
+                        <button type="submit" id="submit-comment">Post Comment</button>
+                    </form>
+                    <div id="comments-container">
+                        {comments_html}
+                    </div>
+                </div>
+                
+                <script>
+                    const currentUsername = "{current_username}";
+                    const targetUsername = "{username}";
+                    
+                    document.getElementById('comment-form').addEventListener('submit', function(e) {{
+                        e.preventDefault();
+                        const commentInput = document.getElementById('comment-input');
+                        const comment = commentInput.value.trim();
+                        
+                        if (comment) {{
+                            // Prepare comment data
+                            const commentData = {{
+                                action: 'add_profile_comment',
+                                username: currentUsername,
+                                target_user: targetUsername,
+                                comment: comment
+                            }};
+                            
+                            // Send comment via WebSocket
+                            const socket = new WebSocket('ws://localhost:12345');
+                            
+                            socket.onopen = function() {{
+                                socket.send(JSON.stringify(commentData));
+                            }};
+                            
+                            socket.onmessage = function(event) {{
+                                const response = JSON.parse(event.data);
+                                
+                                if (response.action === 'profile_comment_added') {{
+                                    // Add comment to UI
+                                    const commentsContainer = document.getElementById('comments-container');
+                                    const newComment = document.createElement('div');
+                                    newComment.className = 'comment';
+                                    newComment.innerHTML = `
+                                        <strong>${{response.comment.username}}</strong>
+                                        <p>${{response.comment.comment}}</p>
+                                        <small>${{response.comment.timestamp}}</small>
+                                    `;
+                                    commentsContainer.insertBefore(newComment, commentsContainer.firstChild);
+                                    commentInput.value = '';
+                                }}
+                                
+                                socket.close();
+                            }};
+                            
+                            socket.onerror = function(error) {{
+                                console.error('WebSocket Error:', error);
+                                alert('Failed to send comment. Please try again.');
+                            }};
+                        }}
+                    }});
+                </script>
+            </body>
+            </html>
+            '''
+            
+            # Prepare HTTP-like response
+            response = (
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: text/html; charset=utf-8\r\n"
+                f"Content-Length: {len(profile_html)}\r\n"
+                "\r\n"
+                f"{profile_html}"
+            )
+            
+            # Send the response
+            client_socket.send(response.encode())
+        
+        except Exception as e:
+            logging.error(f"Error rendering profile page: {e}")
+            self.send_error(client_socket, "Failed to render profile page")
 
     def remove_client(self, client_socket):
         """Remove client and clean up their data"""
@@ -709,6 +988,10 @@ class ChatServer:
     def start_server(self):
         """Start the server and listen for client connections"""
         try:
+            # Start the web server in a separate thread
+            web_server = WebServer()
+            web_server.start_in_thread()
+            
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.server_socket.bind((self.host, self.port))
             self.server_socket.listen(5)
