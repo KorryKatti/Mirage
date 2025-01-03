@@ -743,9 +743,37 @@ class MainWindow(QMainWindow):
         }
 
         self.client.send_message(json.dumps(data))
-        response = json.loads(self.client.socket.recv(1024).decode())
+        
+        # Receive data in a more robust way
+        buffer = b''
+        response = None
+        try:
+            while True:
+                chunk = self.client.socket.recv(1024)
+                if not chunk:
+                    print("No data received from server")
+                    break
+                
+                buffer += chunk
+                try:
+                    response = json.loads(buffer.decode())
+                    break
+                except json.JSONDecodeError as e:
+                    print(f"Partial JSON decode: {e}")
+                    print(f"Current buffer: {buffer}")
+                    if len(chunk) < 1024:
+                        # If we've received less than a full buffer, we're done
+                        print("Reached end of transmission")
+                        break
+        except Exception as e:
+            print(f"Error receiving login response: {e}")
+            return
+        
+        if not response:
+            print("No valid response received from server")
+            return
 
-        if response['success']:
+        if response.get('success'):
             # Store user data
             self.client.username = data['username']
             self.client.avatar_url = response.get('avatar_url', '')
@@ -757,7 +785,33 @@ class MainWindow(QMainWindow):
             })
             
             # Get room list from server
-            room_data = json.loads(self.client.socket.recv(1024).decode())
+            buffer = b''
+            room_data = None
+            try:
+                while True:
+                    chunk = self.client.socket.recv(1024)
+                    if not chunk:
+                        print("No room list data received from server")
+                        break
+                    
+                    buffer += chunk
+                    try:
+                        room_data = json.loads(buffer.decode())
+                        break
+                    except json.JSONDecodeError as e:
+                        print(f"Partial room list JSON decode: {e}")
+                        print(f"Current buffer: {buffer}")
+                        if len(chunk) < 1024:
+                            print("Reached end of room list transmission")
+                            break
+            except Exception as e:
+                print(f"Error receiving room list: {e}")
+                return
+            
+            if not room_data:
+                print("No valid room list received from server")
+                return
+
             if room_data['action'] == 'room_list':
                 self.create_room_buttons(room_data['rooms'])
             
