@@ -747,6 +747,7 @@ class MainWindow(QMainWindow):
         # Receive data in a more robust way
         buffer = b''
         response = None
+        room_data = None
         try:
             while True:
                 chunk = self.client.socket.recv(1024)
@@ -755,22 +756,46 @@ class MainWindow(QMainWindow):
                     break
                 
                 buffer += chunk
+                
+                # Try to split multiple JSON objects
                 try:
-                    response = json.loads(buffer.decode())
-                    break
-                except json.JSONDecodeError as e:
-                    print(f"Partial JSON decode: {e}")
-                    print(f"Current buffer: {buffer}")
-                    if len(chunk) < 1024:
-                        # If we've received less than a full buffer, we're done
-                        print("Reached end of transmission")
+                    # Split the buffer into potential JSON objects
+                    json_objects = buffer.decode().split('}{')
+                    
+                    # If we have multiple objects, reconstruct them
+                    if len(json_objects) > 1:
+                        json_objects = [
+                            json_objects[0] + '}' if not json_objects[0].endswith('}') else json_objects[0],
+                            '{' + json_objects[1] if not json_objects[1].startswith('{') else json_objects[1]
+                        ]
+                    
+                    # Try to parse each object
+                    for obj_str in json_objects:
+                        try:
+                            parsed_obj = json.loads(obj_str)
+                            
+                            # Determine which object we've received
+                            if 'success' in parsed_obj:
+                                response = parsed_obj
+                            elif 'action' in parsed_obj and parsed_obj['action'] == 'room_list':
+                                room_data = parsed_obj
+                        except json.JSONDecodeError:
+                            # If parsing fails, continue
+                            continue
+                    
+                    # If we have both response and room_data, we're done
+                    if response and room_data:
                         break
+                
+                except Exception as e:
+                    print(f"Error parsing JSON: {e}")
+                    break
         except Exception as e:
             print(f"Error receiving login response: {e}")
             return
         
         if not response:
-            print("No valid response received from server")
+            print("No valid login response received from server")
             return
 
         if response.get('success'):
@@ -784,32 +809,8 @@ class MainWindow(QMainWindow):
                 'bio': self.client.bio
             })
             
-            # Get room list from server
-            buffer = b''
-            room_data = None
-            try:
-                while True:
-                    chunk = self.client.socket.recv(1024)
-                    if not chunk:
-                        print("No room list data received from server")
-                        break
-                    
-                    buffer += chunk
-                    try:
-                        room_data = json.loads(buffer.decode())
-                        break
-                    except json.JSONDecodeError as e:
-                        print(f"Partial room list JSON decode: {e}")
-                        print(f"Current buffer: {buffer}")
-                        if len(chunk) < 1024:
-                            print("Reached end of room list transmission")
-                            break
-            except Exception as e:
-                print(f"Error receiving room list: {e}")
-                return
-            
             if not room_data:
-                print("No valid room list received from server")
+                print("No room list received")
                 return
 
             if room_data['action'] == 'room_list':
@@ -1415,10 +1416,82 @@ class MainWindow(QMainWindow):
                 background-color: #3e8fb0;
             }
         """)
+        open_profile_btn.clicked.connect(lambda: self.open_personal_profile(member_data))
         layout.addWidget(open_profile_btn)
         
         dialog.setLayout(layout)
         dialog.exec()
+
+    def open_personal_profile(self, member_data=None):
+        # If no member_data is provided, use the current user's data
+        if member_data is None:
+            member_data = {
+                'username': self.client.username,
+                'avatar_url': self.client.avatar_url,
+                'bio': self.client.bio
+            }
+        
+        # Create a temporary HTML file for the profile
+        import tempfile
+        import webbrowser
+        
+        # HTML template for the profile page
+        profile_html = f'''
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <title>{member_data['username']}'s Profile</title>
+            <style>
+                body {{
+                    font-family: Arial, sans-serif;
+                    max-width: 600px;
+                    margin: 0 auto;
+                    padding: 20px;
+                    background-color: #f0f0f0;
+                    text-align: center;
+                }}
+                .profile-container {{
+                    background-color: white;
+                    border-radius: 10px;
+                    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                    padding: 30px;
+                }}
+                .avatar {{
+                    width: 200px;
+                    height: 200px;
+                    border-radius: 50%;
+                    object-fit: cover;
+                    margin-bottom: 20px;
+                }}
+                .username {{
+                    font-size: 24px;
+                    color: #333;
+                    margin-bottom: 10px;
+                }}
+                .bio {{
+                    color: #666;
+                    line-height: 1.6;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="profile-container">
+                <img src="{member_data['avatar_url']}" alt="Profile Avatar" class="avatar">
+                <h1 class="username">{member_data['username']}</h1>
+                <p class="bio">{member_data['bio'] or 'No bio provided'}</p>
+            </div>
+        </body>
+        </html>
+        '''
+        
+        # Create a temporary file
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html') as f:
+            f.write(profile_html)
+            temp_file_path = f.name
+        
+        # Open the profile in the default web browser
+        webbrowser.open(f'file://{temp_file_path}')
 
     def send_file_dialog(self):
         """
