@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 import os
 import bcrypt
+import uuid
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -576,6 +577,14 @@ class ChatServer:
                 self.get_room_members(client_socket, data.get('room'))
                 return
 
+            elif action == 'add_profile_comment':
+                self.handle_profile_comment(client_socket, data)
+                return
+
+            elif action == 'get_user_profile':
+                self.get_user_profile(client_socket, data)
+                return
+
         except json.JSONDecodeError as e:
             logger.error(f"JSON decode error: {e}")
             client_socket.send(json.dumps({
@@ -588,6 +597,92 @@ class ChatServer:
                 'success': False,
                 'message': f'Server error: {str(e)}'
             }).encode())
+
+    def handle_profile_comment(self, client_socket, data):
+        try:
+            # Validate comment data
+            username = data.get('username')
+            target_user = data.get('target_user')
+            comment_text = data.get('comment')
+            
+            if not all([username, target_user, comment_text]):
+                self.send_error(client_socket, "Invalid comment data")
+                return
+            
+            # Validate that the commenting user exists
+            if username not in self.users:
+                self.send_error(client_socket, "Sender user not found")
+                return
+            
+            # Validate target user exists
+            if target_user not in self.users:
+                self.send_error(client_socket, "Target user not found")
+                return
+            
+            # Sanitize comment length
+            if len(comment_text) > 500:
+                self.send_error(client_socket, "Comment too long (max 500 characters)")
+                return
+            
+            # Generate a unique comment ID
+            comment_id = str(uuid.uuid4())
+            
+            # Store comment in user's profile comments
+            comment_data = {
+                'id': comment_id,
+                'username': username,
+                'comment': comment_text,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            # Ensure comments collection exists for the user
+            if 'comments' not in self.users[target_user]:
+                self.users[target_user]['comments'] = []
+            
+            # Add comment to user's profile
+            self.users[target_user]['comments'].insert(0, comment_data)
+            
+            # Limit comments to last 50
+            self.users[target_user]['comments'] = self.users[target_user]['comments'][:50]
+            
+            # Save updated user data
+            self.save_users()
+            
+            # Send success response
+            response = {
+                'action': 'profile_comment_added',
+                'success': True,
+                'comment': comment_data,
+                'target_user': target_user
+            }
+            client_socket.send(json.dumps(response).encode())
+        
+        except Exception as e:
+            logging.error(f"Error handling profile comment: {e}")
+            self.send_error(client_socket, "Failed to add comment")
+
+    def get_user_profile(self, client_socket, data):
+        try:
+            username = data.get('username')
+            
+            if username not in self.users:
+                self.send_error(client_socket, "User not found")
+                return
+            
+            # Retrieve user profile data including comments
+            user_profile = {
+                'action': 'user_profile',
+                'username': username,
+                'avatar_url': self.users[username].get('avatar_url', ''),
+                'bio': self.users[username].get('bio', ''),
+                'comments': self.users[username].get('comments', [])
+            }
+            
+            client_socket.send(json.dumps(user_profile).encode())
+        
+        except Exception as e:
+            logging.error(f"Error retrieving user profile: {e}")
+            self.send_error(client_socket, "Failed to retrieve profile")
 
     def remove_client(self, client_socket):
         """Remove client and clean up their data"""
@@ -663,6 +758,12 @@ class ChatServer:
         finally:
             self.remove_client(client_socket)
             client_socket.close()
+
+    def send_error(self, client_socket, message):
+        client_socket.send(json.dumps({
+            'action': 'error',
+            'message': message
+        }).encode())
 
 if __name__ == "__main__":
     server = ChatServer()
