@@ -48,3 +48,6 @@ secrets.json
 Thumbs.db
 rooms.json
 /messages
+
+uploads/
+downloads/
