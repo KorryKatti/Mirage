@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory, send_file
+from flask import Flask, request, jsonify, send_from_directory, send_file, render_template
 from flask_cors import CORS
 from datetime import datetime
 import threading
@@ -12,8 +12,18 @@ import psutil
 import requests
 from werkzeug.utils import secure_filename
 
-app = Flask(__name__, static_url_path='')
-CORS(app)
+app = Flask(__name__, 
+    static_url_path='',
+    template_folder='templates',  # Add template folder configuration
+    static_folder='static'       # Explicitly set static folder
+)
+CORS(app, resources={
+    r"/*": {  # Change from /api/* to /* to allow access to static files
+        "origins": "*",
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "Authorization"]
+    }
+})
 app.config['SECRET_KEY'] = secrets.token_hex(16)
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 app.config['UPLOAD_FOLDER'] = 'uploads'
@@ -60,6 +70,15 @@ def init_db():
                       size INTEGER,
                       mime_type TEXT,
                       timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+        
+        # Load existing channels
+        c.execute('SELECT name, topic FROM channels')
+        for row in c.fetchall():
+            channels[row[0]] = {
+                'topic': row[1],
+                'users': set()
+            }
+        
         conn.commit()
 
 init_db()
@@ -261,7 +280,15 @@ def handle_command(username, command, channel):
                 new_channel = f'#{new_channel}'
             
             if new_channel not in channels:
-                channels[new_channel] = {'topic': '', 'users': set()}
+                channels[new_channel] = {
+                    'topic': f'Welcome to {new_channel}',
+                    'users': set()
+                }
+                with sqlite3.connect(f'mirage_{SERVER_ID}.db') as conn:
+                    c = conn.cursor()
+                    c.execute('INSERT INTO channels (name, topic) VALUES (?, ?)',
+                             (new_channel, f'Welcome to {new_channel}'))
+                    conn.commit()
             
             channels[new_channel]['users'].add(username)
             active_users[username]['channels'].add(new_channel)
@@ -273,11 +300,50 @@ def handle_command(username, command, channel):
             channels[channel]['users'].remove(username)
             broadcast_system_message(f'* {username} has left {channel}', channel)
     
+    elif cmd == '/topic':
+        if len(parts) > 1:
+            new_topic = ' '.join(parts[1:])
+            if channel in channels:
+                with sqlite3.connect(f'mirage_{SERVER_ID}.db') as conn:
+                    c = conn.cursor()
+                    c.execute('UPDATE channels SET topic = ? WHERE name = ?',
+                             (new_topic, channel))
+                    conn.commit()
+                channels[channel]['topic'] = new_topic
+                broadcast_system_message(f'* {username} has changed the topic to: {new_topic}', channel)
+    
+    elif cmd == '/list':
+        channel_list = []
+        for ch_name, ch_info in channels.items():
+            channel_list.append(f'{ch_name} ({len(ch_info["users"])} users): {ch_info["topic"]}')
+        active_users[username]['message_queue'].extend(channel_list)
+    
     elif cmd == '/nick':
         if len(parts) > 1:
             new_nick = parts[1]
             old_nick = username
-            # Implementation for nickname change would go here
+            
+            # Check if nickname is already taken
+            with sqlite3.connect(f'mirage_{SERVER_ID}.db') as conn:
+                c = conn.cursor()
+                c.execute('SELECT username FROM users WHERE username = ?', (new_nick,))
+                if c.fetchone():
+                    active_users[username]['message_queue'].append(f'* Error: Nickname {new_nick} is already taken')
+                    return
+                
+                # Update username in database
+                c.execute('UPDATE users SET username = ? WHERE username = ?', (new_nick, old_nick))
+                c.execute('UPDATE messages SET sender = ? WHERE sender = ?', (new_nick, old_nick))
+                c.execute('UPDATE files SET uploader = ? WHERE uploader = ?', (new_nick, old_nick))
+                conn.commit()
+            
+            # Update in-memory data
+            active_users[new_nick] = active_users.pop(old_nick)
+            for ch_info in channels.values():
+                if old_nick in ch_info['users']:
+                    ch_info['users'].remove(old_nick)
+                    ch_info['users'].add(new_nick)
+            
             broadcast_system_message(f'* {old_nick} is now known as {new_nick}')
     
     elif cmd == '/me':
@@ -322,14 +388,10 @@ cleanup_thread.start()
 stats_thread = threading.Thread(target=update_server_stats, daemon=True)
 stats_thread.start()
 
-# Serve static files
+# Update the route handlers for serving the web interface
 @app.route('/')
 def index():
-    return send_from_directory('static', 'index.html')
-
-@app.route('/<path:path>')
-def static_files(path):
-    return send_from_directory('static', path)
+    return render_template('index.html')
 
 @app.route('/api/upload', methods=['POST'])
 def upload_file():
@@ -373,19 +435,29 @@ def upload_file():
             file_id = c.lastrowid
             conn.commit()
         
-        # Broadcast file upload message
-        file_url = f"/api/download/{file_id}"
-        message = f"* {username} shared a file: {filename} ({file_url})"
+        # Create file size string
+        file_size = os.path.getsize(filepath)
+        size_str = format_file_size(file_size)
+        
+        # Broadcast file upload message with preview and download links
+        message = f"* {username} shared a file: {filename} ({size_str}) - [Preview/Download: /api/download/{file_id}]"
         broadcast_system_message(message, channel)
         
         return jsonify({
             'message': 'File uploaded successfully',
             'file_id': file_id,
-            'url': file_url
+            'url': f"/api/download/{file_id}"
         })
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+def format_file_size(size):
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size < 1024:
+            return f"{size:.1f}{unit}"
+        size /= 1024
+    return f"{size:.1f}GB"
 
 @app.route('/api/download/<int:file_id>')
 def download_file(file_id):
@@ -453,6 +525,112 @@ def list_files(channel):
     
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/channels', methods=['GET'])
+def list_channels():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    username = None
+    for user, info in active_users.items():
+        if info['token'] == token:
+            username = user
+            break
+    
+    if not username:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    channel_list = []
+    for channel_name, channel_info in channels.items():
+        channel_list.append({
+            'name': channel_name,
+            'topic': channel_info['topic'],
+            'users_count': len(channel_info['users'])
+        })
+    
+    return jsonify({'channels': channel_list})
+
+@app.route('/api/channels/create', methods=['POST'])
+def create_channel():
+    token = request.headers.get('Authorization')
+    data = request.json
+    
+    username = None
+    for user, info in active_users.items():
+        if info['token'] == token:
+            username = user
+            break
+    
+    if not username:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    channel_name = data.get('name', '').strip()
+    if not channel_name:
+        return jsonify({'error': 'Channel name is required'}), 400
+    
+    if not channel_name.startswith('#'):
+        channel_name = f'#{channel_name}'
+    
+    if channel_name in channels:
+        return jsonify({'error': 'Channel already exists'}), 409
+    
+    topic = data.get('topic', 'Welcome to ' + channel_name)
+    
+    with sqlite3.connect(f'mirage_{SERVER_ID}.db') as conn:
+        c = conn.cursor()
+        c.execute('INSERT INTO channels (name, topic) VALUES (?, ?)',
+                 (channel_name, topic))
+        conn.commit()
+    
+    channels[channel_name] = {
+        'topic': topic,
+        'users': set([username])
+    }
+    
+    active_users[username]['channels'].add(channel_name)
+    broadcast_system_message(f'* Channel {channel_name} has been created by {username}')
+    broadcast_system_message(f'* {username} has joined {channel_name}', channel_name)
+    
+    return jsonify({
+        'name': channel_name,
+        'topic': topic
+    })
+
+@app.route('/api/channels/<channel>/topic', methods=['PUT'])
+def set_channel_topic(channel):
+    token = request.headers.get('Authorization')
+    data = request.json
+    
+    username = None
+    for user, info in active_users.items():
+        if info['token'] == token:
+            username = user
+            break
+    
+    if not username:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    if channel not in channels:
+        return jsonify({'error': 'Channel not found'}), 404
+    
+    if username not in channels[channel]['users']:
+        return jsonify({'error': 'You are not in this channel'}), 403
+    
+    new_topic = data.get('topic', '').strip()
+    if not new_topic:
+        return jsonify({'error': 'Topic cannot be empty'}), 400
+    
+    with sqlite3.connect(f'mirage_{SERVER_ID}.db') as conn:
+        c = conn.cursor()
+        c.execute('UPDATE channels SET topic = ? WHERE name = ?',
+                 (new_topic, channel))
+        conn.commit()
+    
+    channels[channel]['topic'] = new_topic
+    broadcast_system_message(f'* {username} has changed the topic to: {new_topic}', channel)
+    
+    return jsonify({'topic': new_topic})
 
 if __name__ == '__main__':
     app.run(host=HOST, port=PORT, debug=True)

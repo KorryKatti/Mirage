@@ -3,19 +3,19 @@
         {
             "id": "server1",
             "host": "127.0.0.1",
-            "port": 6667,
+            "port": 5000,
             "max_users": 100
         },
         {
             "id": "server2",
             "host": "127.0.0.1",
-            "port": 6668,
+            "port": 5001,
             "max_users": 100
         },
         {
             "id": "server3",
             "host": "127.0.0.1",
-            "port": 6669,
+            "port": 5002,
             "max_users": 100
         }
     ],

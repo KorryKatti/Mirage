@@ -1,0 +1,11 @@
+{
+    "servers": [
+        {
+            "id": "server1",
+            "host": "127.0.0.1",
+            "port": 5000,
+            "max_users": 100
+        }
+    ],
+    "health_check_interval": 30
+} 
