@@ -6,48 +6,12 @@ import time
 import requests
 import json
 
-class ServerManager:
-    def __init__(self):
-        with open('servers.json', 'r') as f:
-            self.config = json.load(f)
-        self.servers = self.config['servers']
-        self.current_server = None
-    
-    def get_best_server(self):
-        server_loads = []
-        for server in self.servers:
-            try:
-                response = requests.get(
-                    f"http://{server['host']}:{server['port']}/api/server/stats",
-                    timeout=2
-                )
-                if response.status_code == 200:
-                    stats = response.json()
-                    # Calculate load score (lower is better)
-                    load_score = (
-                        stats['stats']['cpu_usage'] * 0.4 +
-                        stats['stats']['memory_usage'] * 0.3 +
-                        (stats['stats']['active_users_count'] / server['max_users']) * 0.3
-                    )
-                    server_loads.append((server, load_score))
-            except:
-                continue
-        
-        if not server_loads:
-            raise Exception("No servers available")
-        
-        # Return server with lowest load
-        return min(server_loads, key=lambda x: x[1])[0]
-    
-    def get_server_url(self, server=None):
-        if not server:
-            server = self.current_server
-        return f"http://{server['host']}:{server['port']}/api"
+HOST = '127.0.0.1'
+PORT = 6667
+BASE_URL = f'http://{HOST}:{PORT}/api'
 
 class LoginWindow:
     def __init__(self):
-        self.server_manager = ServerManager()
-        
         self.root = tk.Tk()
         self.root.title("Mirage IRC - Login")
         self.root.configure(bg='#1a1a1a')
@@ -60,16 +24,6 @@ class LoginWindow:
             'highlight': '#3a3a3a',
             'accent': '#6272a4'
         }
-        
-        # Server status
-        self.status_label = tk.Label(
-            self.root,
-            text="Connecting to server...",
-            fg=self.colors['accent'],
-            bg=self.colors['bg'],
-            font=('Consolas', 8)
-        )
-        self.status_label.pack(pady=5)
         
         # Title
         title = tk.Label(
@@ -152,23 +106,7 @@ class LoginWindow:
         
         self.root.mainloop()
     
-    def find_server(self):
-        try:
-            server = self.server_manager.get_best_server()
-            self.server_manager.current_server = server
-            self.status_label.config(
-                text=f"Connected to {server['id']} ({server['host']}:{server['port']})"
-            )
-        except Exception as e:
-            self.status_label.config(text="Error: No servers available")
-            messagebox.showerror("Error", "No servers available")
-    
     def register(self):
-        if not self.server_manager.current_server:
-            self.find_server()
-            if not self.server_manager.current_server:
-                return
-        
         username = self.username.get().strip()
         password = self.password.get().strip()
         
@@ -177,13 +115,10 @@ class LoginWindow:
             return
         
         try:
-            response = requests.post(
-                f"{self.server_manager.get_server_url()}/register",
-                json={
-                    'username': username,
-                    'password': password
-                }
-            )
+            response = requests.post(f'{BASE_URL}/register', json={
+                'username': username,
+                'password': password
+            })
             
             if response.status_code == 200:
                 messagebox.showinfo("Success", "Registration successful! You can now login.")
@@ -193,11 +128,6 @@ class LoginWindow:
             messagebox.showerror("Error", f"Connection failed: {str(e)}")
     
     def login(self):
-        if not self.server_manager.current_server:
-            self.find_server()
-            if not self.server_manager.current_server:
-                return
-        
         username = self.username.get().strip()
         password = self.password.get().strip()
         
@@ -206,39 +136,28 @@ class LoginWindow:
             return
         
         try:
-            response = requests.post(
-                f"{self.server_manager.get_server_url()}/login",
-                json={
-                    'username': username,
-                    'password': password
-                }
-            )
+            response = requests.post(f'{BASE_URL}/login', json={
+                'username': username,
+                'password': password
+            })
             
             if response.status_code == 200:
                 data = response.json()
                 self.root.destroy()
-                MirageClient(
-                    data['token'],
-                    data['username'],
-                    data['channels'],
-                    self.server_manager,
-                    data['server']
-                )
+                MirageClient(data['token'], data['username'], data['channels'])
             else:
                 messagebox.showerror("Error", response.json().get('error', 'Login failed'))
         except Exception as e:
             messagebox.showerror("Error", f"Connection failed: {str(e)}")
 
 class MirageClient:
-    def __init__(self, token, username, channels, server_manager, server):
+    def __init__(self, token, username, channels):
         self.token = token
         self.username = username
-        self.server_manager = server_manager
-        self.server_manager.current_server = server
         self.current_channel = '#general'
         
         self.root = tk.Tk()
-        self.root.title(f"Mirage IRC - {username} ({server['id']})")
+        self.root.title(f"Mirage IRC - {username}")
         self.root.configure(bg='#1a1a1a')
         
         self.colors = {
@@ -386,11 +305,9 @@ class MirageClient:
             }
         
         try:
-            response = requests.post(
-                f"{self.server_manager.get_server_url()}/message",
-                headers=headers,
-                json=data
-            )
+            response = requests.post(f'{BASE_URL}/message', 
+                                   headers=headers,
+                                   json=data)
             if response.status_code == 200:
                 self.entry.delete(0, tk.END)
             else:
@@ -401,10 +318,8 @@ class MirageClient:
     def poll_messages(self):
         while self.polling:
             try:
-                response = requests.get(
-                    f"{self.server_manager.get_server_url()}/poll",
-                    headers={'Authorization': self.token}
-                )
+                response = requests.get(f'{BASE_URL}/poll',
+                                      headers={'Authorization': self.token})
                 
                 if response.status_code == 200:
                     data = response.json()

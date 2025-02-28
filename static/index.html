@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mirage IRC</title>
+    <link href="https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Login/Register Screen -->
+        <div id="auth-screen" class="screen">
+            <div class="auth-container">
+                <h1>Mirage IRC</h1>
+                <div id="server-status">Connecting to server...</div>
+                <div class="auth-form">
+                    <input type="text" id="username" placeholder="Username" />
+                    <input type="password" id="password" placeholder="Password" />
+                    <div class="button-group">
+                        <button id="login-btn">Login</button>
+                        <button id="register-btn">Register</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat Screen -->
+        <div id="chat-screen" class="screen hidden">
+            <div class="sidebar">
+                <div class="server-info">
+                    <h2>Mirage IRC</h2>
+                    <div id="current-server"></div>
+                </div>
+                <div class="channels-container">
+                    <h3>Channels</h3>
+                    <ul id="channel-list"></ul>
+                </div>
+                <div class="users-container">
+                    <h3>Users</h3>
+                    <ul id="user-list"></ul>
+                </div>
+            </div>
+            <div class="chat-container">
+                <div class="chat-header">
+                    <h2 id="channel-name">#general</h2>
+                    <div id="channel-topic">Welcome to Mirage IRC</div>
+                </div>
+                <div id="messages" class="messages"></div>
+                <div class="input-container">
+                    <span id="nick-label"></span>
+                    <input type="text" id="message-input" placeholder="Type a message..." />
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html> 
