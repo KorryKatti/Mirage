@@ -6,4 +6,6 @@ passlib
 python-dotenv
 python-multipart
 bcrypt
-requests 
+requests
+websockets
+pyOpenSSL 

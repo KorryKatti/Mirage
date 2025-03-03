@@ -1,0 +1,1701 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mirage App</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome for icons -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css" rel="stylesheet">
+    <!-- Markdown parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Custom encryption script -->
+    <script src="encryption.js"></script>
+    <style>
+        /* Custom styles */
+        :root {
+            --dark-bg: #121212;
+            --dark-surface: #1e1e1e;
+            --dark-surface-lighter: #2d2d2d;
+            --dark-text: #e0e0e0;
+            --dark-text-secondary: #aaaaaa;
+            --dark-border: #333333;
+            --primary-color: #4285f4;
+            --primary-color-dark: #3367d6;
+            --success-color: #34a853;
+            --success-color-dark: #2e9549;
+            --my-message-bg: #1a3c6e;
+            --their-message-bg: #2d2d2d;
+        }
+        
+        [data-theme="dark"] {
+            color-scheme: dark;
+        }
+        
+        body {
+            padding-top: 56px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--dark-bg);
+            color: var(--dark-text);
+        }
+        
+        .navbar-dark {
+            background-color: var(--dark-surface) !important;
+        }
+        
+        .message-container {
+            margin-bottom: 15px;
+            padding: 12px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            transition: all 0.2s ease;
+        }
+        
+        .message-container:hover {
+            box-shadow: 0 3px 6px rgba(0,0,0,0.4);
+        }
+        
+        .message-sender {
+            font-weight: bold;
+            color: var(--primary-color);
+            margin-bottom: 5px;
+        }
+        
+        .message-content {
+            margin-top: 5px;
+            line-height: 1.4;
+        }
+        
+        .message-reactions {
+            margin-top: 8px;
+            font-size: 1.2em;
+        }
+        
+        .message-comments {
+            margin-top: 8px;
+            margin-left: 20px;
+            border-left: 3px solid var(--dark-border);
+            padding-left: 12px;
+        }
+        
+        .blog-post {
+            margin-bottom: 25px;
+            padding: 20px;
+            border: none;
+            border-radius: 8px;
+            background-color: var(--dark-surface);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        
+        .blog-title {
+            font-size: 1.6em;
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+        
+        .blog-content {
+            margin-top: 12px;
+            line-height: 1.6;
+        }
+        
+        .blog-author {
+            font-style: italic;
+            color: var(--dark-text-secondary);
+            margin-top: 5px;
+        }
+        
+        .auth-container {
+            max-width: 400px;
+            margin: 0 auto;
+            background-color: var(--dark-surface);
+            padding: 25px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        
+        .btn-primary {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+        
+        .btn-primary:hover {
+            background-color: var(--primary-color-dark);
+            border-color: var(--primary-color-dark);
+        }
+        
+        .btn-success {
+            background-color: var(--success-color);
+            border-color: var(--success-color);
+        }
+        
+        .btn-success:hover {
+            background-color: var(--success-color-dark);
+            border-color: var(--success-color-dark);
+        }
+        
+        .card {
+            border: none;
+            border-radius: 8px;
+            background-color: var(--dark-surface);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+        }
+        
+        .card-body {
+            background-color: var(--dark-surface);
+            color: var(--dark-text);
+        }
+        
+        .form-control {
+            border-radius: 4px;
+            background-color: var(--dark-surface-lighter);
+            border-color: var(--dark-border);
+            color: var(--dark-text);
+        }
+        
+        .form-control:focus {
+            background-color: var(--dark-surface-lighter);
+            border-color: var(--primary-color);
+            color: var(--dark-text);
+            box-shadow: 0 0 0 0.2rem rgba(66, 133, 244, 0.25);
+        }
+        
+        .nav-tabs .nav-link {
+            border-radius: 4px 4px 0 0;
+            color: var(--dark-text);
+        }
+        
+        .my-messages {
+            background-color: var(--my-message-bg);
+        }
+        
+        .their-messages {
+            background-color: var(--their-message-bg);
+        }
+        
+        #messageDisplayArea::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        #messageDisplayArea::-webkit-scrollbar-track {
+            background: var(--dark-surface-lighter);
+            border-radius: 4px;
+        }
+        
+        #messageDisplayArea::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 4px;
+        }
+        
+        #messageDisplayArea::-webkit-scrollbar-thumb:hover {
+            background: #777;
+        }
+        
+        .user-selection {
+            margin-bottom: 15px;
+        }
+        
+        .loading-spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,0.1);
+            border-radius: 50%;
+            border-top-color: var(--primary-color);
+            animation: spin 1s ease-in-out infinite;
+            margin-left: 10px;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .footer {
+            background-color: var(--dark-surface) !important;
+        }
+        
+        .text-muted {
+            color: var(--dark-text-secondary) !important;
+        }
+        
+        .btn-outline-secondary {
+            color: var(--dark-text);
+            border-color: var(--dark-border);
+        }
+        
+        .btn-outline-secondary:hover {
+            background-color: var(--dark-surface-lighter);
+            color: var(--dark-text);
+        }
+        
+        .alert-success {
+            background-color: rgba(52, 168, 83, 0.2);
+            border-color: rgba(52, 168, 83, 0.3);
+            color: var(--dark-text);
+        }
+        
+        code {
+            background-color: var(--dark-surface-lighter);
+            color: #f8f9fa;
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+        
+        /* Dark theme for markdown content */
+        .blog-content img, .message-content img {
+            max-width: 100%;
+            border-radius: 4px;
+        }
+        
+        .blog-content a, .message-content a {
+            color: var(--primary-color);
+        }
+        
+        /* Add these styles */
+        .profile-pic {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            object-fit: cover;
+            margin-right: 10px;
+        }
+        
+        .contact-item {
+            display: flex;
+            align-items: center;
+            padding: 8px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .contact-item:hover {
+            background-color: rgba(0, 0, 0, 0.05);
+        }
+        
+        .contact-item.selected {
+            background-color: rgba(0, 123, 255, 0.1);
+        }
+        
+        .contact-name {
+            flex-grow: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        .message-container {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 15px;
+        }
+        
+        .message-sender {
+            display: flex;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        
+        .message-sender img {
+            margin-right: 8px;
+        }
+        
+        .message-content {
+            margin-left: 42px;
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-left: 5px;
+        }
+        
+        .status-dot.online {
+            background-color: var(--success-color);
+        }
+        
+        .status-dot.offline {
+            background-color: #777;
+        }
+        
+        .notification-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: var(--primary-color);
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 0.5; }
+            50% { opacity: 1; }
+            100% { opacity: 0.5; }
+        }
+        
+        #connectionStatus {
+            font-size: 0.8em;
+            margin-left: 10px;
+        }
+        
+        #connectionStatus i {
+            font-size: 0.7em;
+            margin-right: 3px;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark fixed-top">
+        <a class="navbar-brand" href="#">Mirage</a>
+        <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav ml-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="#auth">Login/Signup</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#chat">Chat</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#profile">Profile</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#blogs">Blogs</a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" href="#jitsi">Calls</a>
+                </li>
+                <li class="nav-item" id="logoutNav" style="display: none;">
+                    <a class="nav-link" href="#" onclick="logout()">Logout</a>
+                </li>
+                <li class="nav-item" id="currentUserDisplay" style="display: none;">
+                    <span class="nav-link text-light"></span>
+                </li>
+                <li class="nav-item">
+                    <span id="connectionStatus" class="text-danger">
+                        <i class="fas fa-circle"></i> Disconnected
+                    </span>
+                </li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container mt-5">
+        <!-- Authentication Section -->
+        <div id="auth" class="my-5 auth-container">
+            <h2>Login</h2>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="loginUsername">Username</label>
+                    <input type="text" class="form-control" id="loginUsername" placeholder="Enter username">
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">Password</label>
+                    <input type="password" class="form-control" id="loginPassword" placeholder="Password">
+                </div>
+                <div class="form-group">
+                    <label for="profilePicInput">Profile Picture URL (optional)</label>
+                    <input type="text" class="form-control" id="profilePicInput" placeholder="Enter profile picture URL">
+                </div>
+                <button type="button" class="btn btn-primary" onclick="login()">Login</button>
+            </form>
+            <hr>
+            <h2>Signup</h2>
+            <form id="signupForm">
+                <div class="form-group">
+                    <label for="signupUsername">Username</label>
+                    <input type="text" class="form-control" id="signupUsername" placeholder="Enter username">
+                </div>
+                <div class="form-group">
+                    <label for="signupPassword">Password</label>
+                    <input type="password" class="form-control" id="signupPassword" placeholder="Password">
+                </div>
+                <div class="form-group">
+                    <label for="profilePicInput">Profile Picture URL (optional)</label>
+                    <input type="text" class="form-control" id="profilePicInput" placeholder="Enter profile picture URL">
+                </div>
+                <button type="button" class="btn btn-success" onclick="signup()">Signup</button>
+            </form>
+        </div>
+
+        <!-- Chat Section -->
+        <div id="chat" class="my-5">
+            <h2>Chat</h2>
+            <div class="card mb-4">
+                <div class="card-header">
+                    <h5>Contacts</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <div class="contact-list" style="height: 300px; overflow-y: auto; border-right: 1px solid var(--dark-border);">
+                                <div class="list-group" id="contactList">
+                                    <!-- Contacts will be listed here -->
+                                    <div class="text-center text-muted my-3">
+                                        <p>No contacts yet</p>
+                                    </div>
+                                </div>
+                                <div class="mt-3">
+                                    <div class="input-group">
+                                        <input type="text" id="newContactInput" class="form-control" placeholder="Add new contact..." list="usersList">
+                                        <datalist id="usersList">
+                                            <!-- User options will be added here -->
+                                        </datalist>
+                                        <div class="input-group-append">
+                                            <button class="btn btn-outline-secondary" type="button" onclick="addContact()">
+                                                <i class="fas fa-plus"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-outline-secondary btn-sm mt-2" onclick="loadUsers()">
+                                        <i class="fas fa-sync-alt"></i> Refresh Users
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-8">
+                            <div id="chatArea">
+                                <div class="text-center text-muted my-5">
+                                    <p>Select a contact to start chatting</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card" id="messageCard" style="display: none;">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 id="currentChatHeader">Chat with: <span id="currentChatUser"></span></h5>
+                    <div>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="refreshCurrentChat()">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                        <button class="btn btn-sm btn-outline-info" onclick="testEncryption()">
+                            <i class="fas fa-bug"></i> Test Encryption
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div id="messageDisplayArea" class="mb-3" style="height: 450px; overflow-y: scroll; border: 1px solid var(--dark-border); padding: 15px; border-radius: 8px; background-color: var(--dark-bg);">
+                        <!-- Messages will be displayed here -->
+                    </div>
+                    <div class="input-group mb-3">
+                        <input type="text" id="messageInput" class="form-control" placeholder="Type your message...">
+                        <div class="input-group-append">
+                            <button class="btn btn-primary" type="button" onclick="sendMessage()" id="sendButton">
+                                Send
+                                <div class="loading-spinner" id="sendSpinner"></div>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="input-group mb-3">
+                        <input type="text" id="fileUrlInput" class="form-control" placeholder="Enter file URL...">
+                        <div class="input-group-append">
+                            <button class="btn btn-secondary" type="button" onclick="sendFileUrl()" id="sendFileButton">
+                                Send File
+                                <div class="loading-spinner" id="sendFileSpinner"></div>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="messageExpiration">Message Expiration (hours)</label>
+                        <input type="number" class="form-control" id="messageExpiration" value="24" min="1" max="168">
+                    </div>
+                    <div class="mt-3">
+                        <button class="btn btn-outline-secondary" onclick="addReaction('👍')">👍</button>
+                        <button class="btn btn-outline-secondary" onclick="addReaction('❤️')">❤️</button>
+                        <button class="btn btn-outline-secondary" onclick="addReaction('😂')">😂</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Profile Section -->
+        <div id="profile" class="my-5">
+            <h2>User Profile</h2>
+            <form>
+                <div class="form-group">
+                    <label for="username">Username</label>
+                    <input type="text" class="form-control" id="username" placeholder="Enter username">
+                </div>
+                <div class="form-group">
+                    <label for="profileHtml">Custom HTML</label>
+                    <textarea class="form-control" id="profileHtml" rows="3" placeholder="Enter custom HTML for your profile"></textarea>
+                </div>
+                <div class="form-group">
+                    <label for="profileCss">Custom CSS</label>
+                    <textarea class="form-control" id="profileCss" rows="3" placeholder="Enter custom CSS for your profile"></textarea>
+                </div>
+                <button type="button" class="btn btn-primary" onclick="updateProfile()">Update Profile</button>
+            </form>
+            <div class="mt-3">
+                <h3>Profile Preview</h3>
+                <div id="profilePreview" class="border p-3">
+                    <!-- Profile preview will be displayed here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Blogs Section -->
+        <div id="blogs" class="my-5">
+            <h2>Blogs</h2>
+            <form>
+                <div class="form-group">
+                    <label for="blogTitle">Blog Title</label>
+                    <input type="text" class="form-control" id="blogTitle" placeholder="Enter blog title">
+                </div>
+                <div class="form-group">
+                    <label for="blogContent">Content (Markdown supported)</label>
+                    <textarea class="form-control" id="blogContent" rows="5" placeholder="Enter blog content"></textarea>
+                </div>
+                <button type="button" class="btn btn-primary" onclick="createBlog()">Create Blog</button>
+            </form>
+            <div id="blogList" class="mt-3">
+                <!-- Blog posts will be listed here -->
+            </div>
+        </div>
+
+        <!-- Jitsi Section -->
+        <div id="jitsi" class="my-5">
+            <h2>Video/Audio Calls</h2>
+            <button class="btn btn-success" onclick="startJitsiCall()">Start Call</button>
+            <div id="jitsiLink" class="mt-3">
+                <!-- Jitsi meeting link will be displayed here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer bg-dark text-white mt-5 py-3">
+        <div class="container text-center">
+            <span>&copy; 2023 Mirage App</span>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS and dependencies -->
+    <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.3/dist/umd/popper.min.js"></script>
+    <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+    <!-- Custom JS -->
+    <script>
+        // Global variables
+        let currentUser = null;
+        let authToken = null;
+        let selectedContact = null;
+        let webSocket = null;
+        let contacts = [];
+        let lastMessageTimestamp = 0;
+        let isLoadingMessages = false;
+        const API_BASE_URL = window.location.protocol === 'https:' 
+            ? "https://localhost:8443" 
+            : "http://localhost:8000";
+        const WS_BASE_URL = window.location.protocol === 'https:' 
+            ? "wss://localhost:8443" 
+            : "ws://localhost:8000";
+        
+        // Cache for profile pictures to prevent flickering
+        const profilePicCache = {};
+
+        // Add these utility functions at the top of your script
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // Preload and cache a profile picture
+        function preloadProfilePic(username) {
+            if (profilePicCache[username]) {
+                return profilePicCache[username]; // Return cached URL if available
+            }
+            
+            const profilePicUrl = localStorage.getItem(`profilePic_${username}`);
+            if (!profilePicUrl) {
+                profilePicCache[username] = 'https://via.placeholder.com/32';
+                return profilePicCache[username];
+            }
+            
+            // Create a new image to test the URL
+            const img = new Image();
+            img.onload = function() {
+                profilePicCache[username] = profilePicUrl;
+                // Update any existing images for this user
+                document.querySelectorAll(`.profile-pic[data-username="${username}"]`).forEach(imgEl => {
+                    imgEl.src = profilePicUrl;
+                });
+            };
+            img.onerror = function() {
+                profilePicCache[username] = 'https://via.placeholder.com/32';
+                // Update any existing images for this user
+                document.querySelectorAll(`.profile-pic[data-username="${username}"]`).forEach(imgEl => {
+                    imgEl.src = 'https://via.placeholder.com/32';
+                });
+            };
+            img.src = profilePicUrl;
+            
+            // Return placeholder while loading
+            return 'https://via.placeholder.com/32';
+        }
+
+        // WebSocket connection management
+        function connectWebSocket() {
+            if (!currentUser || !authToken) {
+                console.log('Cannot connect WebSocket: No user or token');
+                return;
+            }
+            
+            if (webSocket) {
+                // Close existing connection
+                webSocket.close();
+            }
+            
+            console.log(`Connecting to WebSocket for ${currentUser}...`);
+            
+            // Create WebSocket connection
+            webSocket = new WebSocket(`${WS_BASE_URL}/ws/${currentUser}?token=${authToken}`);
+            
+            webSocket.onopen = function(e) {
+                console.log('WebSocket connection established');
+                // Start ping interval to keep connection alive
+                startPingInterval();
+                // Update UI to show connected status
+                updateConnectionStatus(true);
+            };
+            
+            webSocket.onmessage = function(event) {
+                handleWebSocketMessage(event.data);
+            };
+            
+            webSocket.onclose = function(event) {
+                console.log('WebSocket connection closed', event.code, event.reason);
+                // Clear ping interval
+                stopPingInterval();
+                // Update UI to show disconnected status
+                updateConnectionStatus(false);
+                
+                // Try to reconnect after a delay if not a normal closure
+                if (event.code !== 1000) {
+                    setTimeout(connectWebSocket, 5000);
+                }
+            };
+            
+            webSocket.onerror = function(error) {
+                console.error('WebSocket error:', error);
+            };
+        }
+
+        function updateConnectionStatus(isConnected) {
+            const statusElement = document.getElementById('connectionStatus');
+            if (statusElement) {
+                statusElement.className = isConnected ? 'text-success' : 'text-danger';
+                statusElement.innerHTML = isConnected ? 
+                    '<i class="fas fa-circle"></i> Connected' : 
+                    '<i class="fas fa-circle"></i> Disconnected';
+            }
+        }
+
+        let pingInterval = null;
+
+        function startPingInterval() {
+            // Send ping every 30 seconds to keep connection alive
+            pingInterval = setInterval(() => {
+                if (webSocket && webSocket.readyState === WebSocket.OPEN) {
+                    webSocket.send(JSON.stringify({ type: 'ping' }));
+                }
+            }, 30000);
+        }
+
+        function stopPingInterval() {
+            if (pingInterval) {
+                clearInterval(pingInterval);
+                pingInterval = null;
+            }
+        }
+
+        function handleWebSocketMessage(data) {
+            try {
+                const message = JSON.parse(data);
+                
+                // Handle different message types
+                switch (message.type) {
+                    case 'new_message':
+                        // Handle new message
+                        processNewMessage(message);
+                        break;
+                        
+                    case 'message_sent':
+                        // Handle confirmation of sent message
+                        console.log('Message sent confirmation:', message);
+                        break;
+                        
+                    case 'online_users':
+                        // Update online users list
+                        updateOnlineUsers(message.users);
+                        break;
+                }
+            } catch (error) {
+                console.error('Error processing WebSocket message:', error);
+            }
+        }
+
+        function logout() {
+            // Clear auth data
+            authToken = null;
+            currentUser = null;
+            selectedContact = null;
+            contacts = [];
+            
+            // Close WebSocket connection
+            if (webSocket) {
+                webSocket.close();
+                webSocket = null;
+            }
+            
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('currentUser');
+            localStorage.removeItem('contacts');
+            
+            // Show auth section, hide user-specific elements
+            document.getElementById('auth').style.display = 'block';
+            document.getElementById('logoutNav').style.display = 'none';
+            document.getElementById('currentUserDisplay').style.display = 'none';
+            
+            // Reset UI
+            document.getElementById('contactList').innerHTML = `
+                <div class="text-center text-muted my-3">
+                    <p>No contacts yet</p>
+                </div>
+            `;
+            document.getElementById('chatArea').innerHTML = `
+                <div class="text-center text-muted my-5">
+                    <p>Select a contact to start chatting</p>
+                </div>
+            `;
+            document.getElementById('messageCard').style.display = 'none';
+        }
+
+        async function signup() {
+            const username = document.getElementById('signupUsername').value;
+            const password = document.getElementById('signupPassword').value;
+            const profilePicUrl = document.getElementById('profilePicInput').value;
+
+            if (!username || !password) {
+                alert('Please enter both username and password');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/signup`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ username, password }),
+                });
+
+                if (response.ok) {
+                    alert('Signup successful! You can now login.');
+                    // Clear signup form
+                    document.getElementById('signupUsername').value = '';
+                    document.getElementById('signupPassword').value = '';
+                    if (profilePicUrl) {
+                        localStorage.setItem(`profilePic_${username}`, profilePicUrl);
+                        // Preload the profile pic
+                        preloadProfilePic(username);
+                    }
+                } else {
+                    const errorData = await response.json();
+                    alert(`Signup failed: ${errorData.detail || 'Please try again.'}`);
+                }
+            } catch (error) {
+                console.error('Error during signup:', error);
+                alert('An error occurred during signup.');
+            }
+        }
+
+        function addContact() {
+            const newContactInput = document.getElementById('newContactInput');
+            const contactName = newContactInput.value.trim();
+            
+            if (!contactName) {
+                alert('Please enter a contact name');
+                return;
+            }
+            
+            // Check if contact already exists
+            if (contacts.includes(contactName)) {
+                alert('Contact already exists');
+                newContactInput.value = '';
+                return;
+            }
+            
+            // Add to contacts array
+            contacts.push(contactName);
+            
+            // Save to localStorage
+            localStorage.setItem('contacts', JSON.stringify(contacts));
+            
+            // Update contact list
+            updateContactList();
+            
+            // Clear input
+            newContactInput.value = '';
+            
+            // Initialize encryption for this contact
+            initializeEncryption(contactName);
+            
+            // Preload profile picture if available
+            preloadProfilePic(contactName);
+        }
+
+        function updateContactList() {
+            const contactList = document.getElementById('contactList');
+            
+            if (contacts.length === 0) {
+                contactList.innerHTML = `
+                    <div class="text-center text-muted my-3">
+                        <p>No contacts yet</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            contactList.innerHTML = '';
+            
+            contacts.forEach(contact => {
+                // Create contact element with profile picture
+                const contactElement = document.createElement('div');
+                contactElement.className = 'contact-item';
+                contactElement.onclick = function() {
+                    selectContact(contact);
+                    
+                    // Update selected state
+                    document.querySelectorAll('.contact-item').forEach(item => {
+                        item.classList.remove('selected');
+                    });
+                    contactElement.classList.add('selected');
+                };
+                
+                // Get profile picture (with preloading)
+                const profilePicUrl = preloadProfilePic(contact);
+                
+                // Create profile picture element
+                const profilePic = document.createElement('img');
+                profilePic.className = 'profile-pic';
+                profilePic.src = profilePicUrl;
+                profilePic.alt = contact;
+                profilePic.setAttribute('data-username', contact);
+                profilePic.loading = 'lazy';
+                
+                // Create contact name element
+                const contactName = document.createElement('div');
+                contactName.className = 'contact-name';
+                contactName.textContent = contact;
+                
+                // Add elements to contact item
+                contactElement.appendChild(profilePic);
+                contactElement.appendChild(contactName);
+                
+                // Add to contact list
+                contactList.appendChild(contactElement);
+            });
+        }
+
+        function selectContact(contact) {
+            selectedContact = contact;
+            document.getElementById('currentChatUser').textContent = contact;
+            document.getElementById('messageDisplayArea').innerHTML = '';
+            document.getElementById('messageCard').style.display = 'block';
+            lastMessageTimestamp = 0;
+            
+            // Remove notification dot when selecting a contact
+            const contactElements = document.querySelectorAll('.contact-item');
+            contactElements.forEach(element => {
+                const nameElement = element.querySelector('.contact-name');
+                if (nameElement && nameElement.textContent === contact) {
+                    const dot = element.querySelector('.notification-dot');
+                    if (dot) {
+                        element.removeChild(dot);
+                    }
+                }
+            });
+            
+            // Initial load of messages
+            loadMessages();
+        }
+
+        function refreshCurrentChat() {
+            if (selectedContact) {
+                loadMessages();
+            }
+        }
+
+        // Message handling functions
+        async function sendMessage() {
+            if (!currentUser || !authToken || !selectedContact) {
+                alert('Please login and select a contact to chat with');
+                return;
+            }
+
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value;
+            const expiration = document.getElementById('messageExpiration').value;
+            
+            if (!message) return;
+
+            // Show loading spinner
+            const sendButton = document.getElementById('sendButton');
+            const sendSpinner = document.getElementById('sendSpinner');
+            sendButton.disabled = true;
+            sendSpinner.style.display = 'inline-block';
+
+            // Ensure encryption is initialized for the receiver
+            initializeEncryption(selectedContact);
+            
+            // Encrypt the message using the RECEIVER'S key
+            const key = getEncryptionKey(selectedContact);
+            
+            if (!key) {
+                console.error(`No encryption key available for ${selectedContact}`);
+                alert(`Error: Could not encrypt message for ${selectedContact}`);
+                sendButton.disabled = false;
+                sendSpinner.style.display = 'none';
+                return;
+            }
+            
+            console.log(`Encrypting message to ${selectedContact} using ${selectedContact}'s key`);
+            const encryptedMessage = encryptMessage(message, key);
+
+            try {
+                // Try to send via WebSocket first
+                if (webSocket && webSocket.readyState === WebSocket.OPEN) {
+                    const sent = sendWebSocketMessage(selectedContact, encryptedMessage, null, parseInt(expiration));
+                    
+                    if (sent) {
+                        // Display the message immediately in the UI
+                        displayMessage(currentUser, message, false, true);
+                        messageInput.value = ''; // Clear input
+                        sendButton.disabled = false;
+                        sendSpinner.style.display = 'none';
+                        return;
+                    }
+                }
+                
+                // Fallback to REST API if WebSocket is not available
+                const response = await fetch(`${API_BASE_URL}/send-message`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({ 
+                        sender: currentUser, 
+                        receiver: selectedContact, 
+                        content: encryptedMessage,
+                        expiration_hours: parseInt(expiration)
+                    }),
+                });
+
+                if (response.ok) {
+                    // Display the message immediately in the UI
+                    displayMessage(currentUser, message, false, true);
+                    messageInput.value = ''; // Clear input
+                } else {
+                    console.error('Failed to send message');
+                    alert('Failed to send message');
+                }
+            } catch (error) {
+                console.error('Error sending message:', error);
+                alert('An error occurred while sending the message.');
+            } finally {
+                // Hide loading spinner
+                sendButton.disabled = false;
+                sendSpinner.style.display = 'none';
+            }
+        }
+
+        async function sendFileUrl() {
+            if (!currentUser || !authToken || !selectedContact) {
+                alert('Please login and select a contact to chat with');
+                return;
+            }
+
+            const fileUrlInput = document.getElementById('fileUrlInput');
+            const fileUrl = fileUrlInput.value;
+            
+            if (!fileUrl) return;
+
+            // Show loading spinner
+            const sendFileButton = document.getElementById('sendFileButton');
+            const sendFileSpinner = document.getElementById('sendFileSpinner');
+            sendFileButton.disabled = true;
+            sendFileSpinner.style.display = 'inline-block';
+
+            // Format as markdown image if it's an image URL
+            const isImage = fileUrl.match(/\.(jpeg|jpg|gif|png)$/i);
+            const markdownContent = isImage ? `![Image](${fileUrl})` : `[File](${fileUrl})`;
+
+            // Ensure encryption is initialized for the receiver
+            initializeEncryption(selectedContact);
+            
+            // Encrypt the message using the RECEIVER'S key
+            const key = getEncryptionKey(selectedContact);
+            
+            if (!key) {
+                console.error(`No encryption key available for ${selectedContact}`);
+                alert(`Error: Could not encrypt file URL for ${selectedContact}`);
+                sendFileButton.disabled = false;
+                sendFileSpinner.style.display = 'none';
+                return;
+            }
+            
+            console.log(`Encrypting file URL to ${selectedContact} using ${selectedContact}'s key: ${key.substring(0, 5)}...`);
+            const encryptedMessage = encryptMessage(markdownContent, key);
+
+            try {
+                // Try to send via WebSocket first
+                if (webSocket && webSocket.readyState === WebSocket.OPEN) {
+                    const sent = sendWebSocketMessage(selectedContact, encryptedMessage, fileUrl);
+                    
+                    if (sent) {
+                        // Display the message immediately in the UI
+                        displayMessage(currentUser, markdownContent, true, true);
+                        fileUrlInput.value = ''; // Clear input
+                        sendFileButton.disabled = false;
+                        sendFileSpinner.style.display = 'none';
+                        return;
+                    }
+                }
+                
+                // Fallback to REST API if WebSocket is not available
+                const response = await fetch(`${API_BASE_URL}/send-message`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({ 
+                        sender: currentUser, 
+                        receiver: selectedContact, 
+                        content: encryptedMessage,
+                        file_url: fileUrl
+                    }),
+                });
+
+                if (response.ok) {
+                    displayMessage(currentUser, markdownContent, true, true);
+                    fileUrlInput.value = ''; // Clear input
+                } else {
+                    console.error('Failed to send file URL');
+                    alert('Failed to send file URL');
+                }
+            } catch (error) {
+                console.error('Error sending file URL:', error);
+                alert('An error occurred while sending the file URL.');
+            } finally {
+                // Hide loading spinner
+                sendFileButton.disabled = false;
+                sendFileSpinner.style.display = 'none';
+            }
+        }
+
+        function displayMessage(sender, message, isMarkdown = false, isFromMe = false) {
+            const messageDisplayArea = document.getElementById('messageDisplayArea');
+            
+            // Create message container
+            const messageContainer = document.createElement('div');
+            messageContainer.className = `message-container ${isFromMe ? 'my-messages' : 'their-messages'}`;
+            
+            // Add sender with profile picture
+            const senderElement = document.createElement('div');
+            senderElement.className = 'message-sender';
+            
+            // Get profile picture (with preloading)
+            const profilePicUrl = preloadProfilePic(sender);
+            
+            // Create image element
+            const imgElement = document.createElement('img');
+            imgElement.className = 'profile-pic';
+            imgElement.src = profilePicUrl;
+            imgElement.alt = sender;
+            imgElement.setAttribute('data-username', sender);
+            imgElement.loading = 'lazy';
+            imgElement.decoding = 'async';
+            
+            // Add sender name
+            const senderName = document.createElement('span');
+            senderName.textContent = sender;
+            
+            senderElement.appendChild(imgElement);
+            senderElement.appendChild(senderName);
+            messageContainer.appendChild(senderElement);
+            
+            // Add content
+            const contentElement = document.createElement('div');
+            contentElement.className = 'message-content';
+            
+            if (isMarkdown) {
+                contentElement.innerHTML = marked.parse(message);
+            } else {
+                contentElement.textContent = message;
+            }
+            
+            messageContainer.appendChild(contentElement);
+            
+            // Add reactions container
+            const reactionsElement = document.createElement('div');
+            reactionsElement.className = 'message-reactions';
+            messageContainer.appendChild(reactionsElement);
+            
+            // Add comments container
+            const commentsElement = document.createElement('div');
+            commentsElement.className = 'message-comments';
+            
+            // Add comment input
+            const commentInput = document.createElement('div');
+            commentInput.className = 'input-group mt-2 mb-2';
+            commentInput.innerHTML = `
+                <input type="text" class="form-control form-control-sm" placeholder="Add a comment...">
+                <div class="input-group-append">
+                    <button class="btn btn-sm btn-outline-secondary" type="button" onclick="addComment(this.parentNode.parentNode.querySelector('input').value, this)">Comment</button>
+                </div>
+            `;
+            
+            commentsElement.appendChild(commentInput);
+            messageContainer.appendChild(commentsElement);
+            
+            // Add to display area
+            messageDisplayArea.appendChild(messageContainer);
+            
+            // Scroll to bottom if user is already at the bottom
+            const isNearBottom = messageDisplayArea.scrollHeight - messageDisplayArea.scrollTop - messageDisplayArea.clientHeight < 100;
+            if (isNearBottom) {
+                messageDisplayArea.scrollTop = messageDisplayArea.scrollHeight;
+            }
+        }
+
+        // Efficient message loading with timestamp tracking
+        async function loadMessages() {
+            if (isLoadingMessages || !selectedContact || !currentUser) return;
+            
+            try {
+                isLoadingMessages = true;
+                
+                // Fetch messages where we are the receiver
+                const receivedResponse = await fetch(`${API_BASE_URL}/receive-messages/${currentUser}?since=${lastMessageTimestamp}`);
+                const receivedMessages = await receivedResponse.json();
+                
+                // Fetch messages where we are the sender
+                const sentResponse = await fetch(`${API_BASE_URL}/receive-messages/${currentUser}?sent=true&since=${lastMessageTimestamp}`);
+                const sentMessages = await sentResponse.json();
+                
+                // Combine and sort messages
+                const allMessages = [...receivedMessages, ...sentMessages]
+                    .filter(msg => msg.sender === selectedContact || msg.receiver === selectedContact)
+                    .sort((a, b) => (a.timestamp || a.created_at) - (b.timestamp || b.created_at));
+                
+                // Update only if we have new messages
+                if (allMessages.length > 0) {
+                    // Update timestamp
+                    const latestTimestamp = Math.max(...allMessages.map(msg => msg.timestamp || msg.created_at));
+                    if (latestTimestamp > lastMessageTimestamp) {
+                        lastMessageTimestamp = latestTimestamp;
+                        
+                        // Process each message
+                        for (const msg of allMessages) {
+                            const isFromMe = msg.sender === currentUser;
+                            
+                            // Determine which key to use for decryption
+                            // If I'm the receiver, use my key
+                            // If I'm the sender, use the receiver's key
+                            const keyUsername = isFromMe ? msg.receiver : msg.sender;
+                            const key = getEncryptionKey(keyUsername);
+                            
+                            if (!key) {
+                                console.error(`No encryption key available for ${keyUsername}`);
+                                continue;
+                            }
+                            
+                            try {
+                                console.log(`Decrypting message from ${msg.sender} to ${msg.receiver}`);
+                                const decryptedContent = decryptMessage(msg.content, key);
+                                
+                                // Only display if decryption was successful
+                                if (!decryptedContent.startsWith('Error:')) {
+                                    displayMessage(msg.sender, decryptedContent, msg.file_url !== null, isFromMe);
+                                } else {
+                                    console.error('Decryption failed:', decryptedContent);
+                                }
+                            } catch (error) {
+                                console.error('Error processing message:', error);
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading messages:', error);
+            } finally {
+                isLoadingMessages = false;
+            }
+        }
+
+        function addReaction(reaction) {
+            if (!currentUser) {
+                alert('Please login first');
+                return;
+            }
+
+            // In a real app, this would send the reaction to the backend
+            console.log('Reaction added:', reaction);
+            
+            // For demonstration, add the reaction to the last message
+            const messageContainers = document.querySelectorAll('.message-container');
+            if (messageContainers.length > 0) {
+                const lastMessage = messageContainers[messageContainers.length - 1];
+                const reactionsElement = lastMessage.querySelector('.message-reactions');
+                
+                // Check if this reaction already exists
+                if (!reactionsElement.textContent.includes(reaction)) {
+                    reactionsElement.textContent += ` ${reaction}`;
+                }
+            }
+        }
+
+        function addComment(comment, buttonElement) {
+            if (!currentUser || !comment) return;
+
+            // Get the comments container
+            const commentsContainer = buttonElement.closest('.message-comments');
+            
+            // Create comment element
+            const commentElement = document.createElement('div');
+            commentElement.className = 'mt-2';
+            commentElement.innerHTML = `<strong>${currentUser}:</strong> ${comment}`;
+            
+            // Insert before the input
+            commentsContainer.insertBefore(commentElement, buttonElement.closest('.input-group'));
+            
+            // Clear input
+            buttonElement.parentNode.parentNode.querySelector('input').value = '';
+        }
+
+        // Profile functions
+        async function updateProfile() {
+            if (!currentUser || !authToken) {
+                alert('Please login first');
+                return;
+            }
+
+            const username = document.getElementById('username').value;
+            const html = document.getElementById('profileHtml').value;
+            const css = document.getElementById('profileCss').value;
+
+            // In a real app, this would send the profile data to the backend
+            console.log('Profile updated:', { username, html, css });
+            
+            // Update profile preview
+            updateProfilePreview(html, css);
+        }
+
+        function updateProfilePreview(html, css) {
+            const previewContainer = document.getElementById('profilePreview');
+            
+            // Create style element
+            const styleElement = document.createElement('style');
+            styleElement.textContent = css;
+            
+            // Set HTML content
+            previewContainer.innerHTML = html;
+            
+            // Add style
+            previewContainer.appendChild(styleElement);
+        }
+
+        // Blog functions
+        async function createBlog() {
+            if (!currentUser || !authToken) {
+                alert('Please login first');
+                return;
+            }
+
+            const title = document.getElementById('blogTitle').value;
+            const content = document.getElementById('blogContent').value;
+
+            if (!title || !content) {
+                alert('Please enter both title and content');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/create-blog`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({ title, content, author: currentUser }),
+                });
+
+                if (response.ok) {
+                    alert('Blog created successfully');
+                    // Clear form
+                    document.getElementById('blogTitle').value = '';
+                    document.getElementById('blogContent').value = '';
+                    // Refresh blog list
+                    loadBlogs();
+                } else {
+                    alert('Failed to create blog');
+                }
+            } catch (error) {
+                console.error('Error creating blog:', error);
+                alert('An error occurred while creating the blog.');
+            }
+        }
+
+        async function loadBlogs() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/blogs`);
+                
+                if (response.ok) {
+                    const blogs = await response.json();
+                    
+                    // Clear blog list
+                    const blogList = document.getElementById('blogList');
+                    blogList.innerHTML = '';
+                    
+                    // Display each blog
+                    blogs.forEach(blog => {
+                        const blogElement = document.createElement('div');
+                        blogElement.className = 'blog-post';
+                        
+                        blogElement.innerHTML = `
+                            <div class="blog-title">${blog.title}</div>
+                            <div class="blog-author">By ${blog.author}</div>
+                            <div class="blog-content">${marked.parse(blog.content)}</div>
+                            <div class="blog-reactions mt-2"></div>
+                            <div class="blog-comments mt-2">
+                                <div class="input-group">
+                                    <input type="text" class="form-control form-control-sm" placeholder="Add a comment...">
+                                    <div class="input-group-append">
+                                        <button class="btn btn-sm btn-outline-secondary" type="button" onclick="addBlogComment(this.parentNode.parentNode.querySelector('input').value, this)">Comment</button>
+                                    </div>
+                                </div>
+                            </div>
+                        `;
+                        
+                        blogList.appendChild(blogElement);
+                    });
+                } else {
+                    console.error('Failed to load blogs');
+                }
+            } catch (error) {
+                console.error('Error loading blogs:', error);
+            }
+        }
+
+        function addBlogComment(comment, buttonElement) {
+            if (!currentUser || !comment) return;
+
+            // Get the comments container
+            const commentsContainer = buttonElement.closest('.blog-comments');
+            
+            // Create comment element
+            const commentElement = document.createElement('div');
+            commentElement.className = 'mt-2';
+            commentElement.innerHTML = `<strong>${currentUser}:</strong> ${comment}`;
+            
+            // Insert before the input
+            commentsContainer.insertBefore(commentElement, buttonElement.closest('.input-group'));
+            
+            // Clear input
+            buttonElement.parentNode.parentNode.querySelector('input').value = '';
+        }
+
+        // Jitsi functions
+        async function startJitsiCall() {
+            if (!currentUser) {
+                alert('Please login first');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/jitsi-link`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const jitsiLink = data.jitsi_link;
+                    
+                    document.getElementById('jitsiLink').innerHTML = `
+                        <div class="alert alert-success mt-3">
+                            <p>Your call link is ready:</p>
+                            <a href="${jitsiLink}" target="_blank" class="btn btn-primary">Join Call</a>
+                            <p class="mt-2">Or share this link: <code>${jitsiLink}</code></p>
+                        </div>
+                    `;
+                } else {
+                    console.error('Failed to generate Jitsi link');
+                    alert('Failed to generate call link');
+                }
+            } catch (error) {
+                console.error('Error generating Jitsi link:', error);
+                alert('An error occurred while generating the call link.');
+            }
+        }
+
+        // Debug functions
+        function testEncryption() {
+            if (!selectedContact) {
+                alert('Please select a contact first');
+                return;
+            }
+            
+            // Make sure encryption is initialized for both users
+            initializeEncryption(currentUser);
+            initializeEncryption(selectedContact);
+            
+            const testMessage = "Hello, this is a test message!";
+            
+            // Test both directions of encryption
+            console.log("Testing encryption from current user to receiver");
+            const sendResult = testEncryption(testMessage, selectedContact);
+            
+            console.log("Testing encryption from receiver to current user");
+            const receiveResult = testEncryption(testMessage, currentUser);
+            
+            // Display detailed results
+            alert(`Encryption Test Results:
+
+SENDING TO ${selectedContact}:
+- Original: ${sendResult.original}
+- Using key for ${selectedContact}: ${sendResult.key}
+- Encrypted: ${sendResult.encrypted.substring(0, 20)}...
+- Decrypted: ${sendResult.decrypted}
+- Success: ${sendResult.success ? 'YES' : 'NO'}
+
+RECEIVING FROM ${selectedContact}:
+- Original: ${receiveResult.original}
+- Using key for ${currentUser}: ${receiveResult.key}
+- Encrypted: ${receiveResult.encrypted.substring(0, 20)}...
+- Decrypted: ${receiveResult.decrypted}
+- Success: ${receiveResult.success ? 'YES' : 'NO'}
+
+This test shows how messages are encrypted in both directions.
+When you send a message, you use the receiver's key.
+When you receive a message, the sender used your key.`);
+        }
+
+        // Initialize the app
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if user is already logged in (from localStorage)
+            const savedToken = localStorage.getItem('authToken');
+            const savedUser = localStorage.getItem('currentUser');
+            const savedContacts = localStorage.getItem('contacts');
+            
+            if (savedToken && savedUser) {
+                authToken = savedToken;
+                currentUser = savedUser;
+                
+                // Hide auth section, show user-specific elements
+                document.getElementById('auth').style.display = 'none';
+                document.getElementById('logoutNav').style.display = 'block';
+                
+                // Display current user
+                const userDisplay = document.getElementById('currentUserDisplay');
+                userDisplay.style.display = 'block';
+                userDisplay.querySelector('span').textContent = `Logged in as: ${currentUser}`;
+                
+                // Initialize encryption for current user
+                initializeEncryption(currentUser);
+                
+                // Preload current user's profile pic
+                preloadProfilePic(currentUser);
+                
+                // Load contacts
+                if (savedContacts) {
+                    try {
+                        contacts = JSON.parse(savedContacts);
+                        
+                        // Initialize encryption for all contacts
+                        contacts.forEach(contact => {
+                            initializeEncryption(contact);
+                            // Preload contact profile pics
+                            preloadProfilePic(contact);
+                        });
+                        
+                        updateContactList();
+                    } catch (e) {
+                        console.error('Error parsing saved contacts:', e);
+                    }
+                }
+                
+                // Connect to WebSocket
+                connectWebSocket();
+                
+                // Load blogs
+                loadBlogs();
+                
+                // Request notification permission
+                requestNotificationPermission();
+            }
+            
+            // Set up event listeners for Enter key
+            document.getElementById('messageInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+            
+            document.getElementById('newContactInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    addContact();
+                }
+            });
+            
+            // Handle page visibility changes to reconnect WebSocket if needed
+            document.addEventListener('visibilitychange', function() {
+                if (document.visibilityState === 'visible' && currentUser && authToken) {
+                    // Check if WebSocket is closed and reconnect if needed
+                    if (!webSocket || webSocket.readyState === WebSocket.CLOSED) {
+                        connectWebSocket();
+                    }
+                }
+            });
+            
+            // Handle window unload to close WebSocket gracefully
+            window.addEventListener('beforeunload', function() {
+                if (webSocket) {
+                    webSocket.close();
+                }
+            });
+        });
+
+        function requestNotificationPermission() {
+            if ('Notification' in window) {
+                if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+                    Notification.requestPermission();
+                }
+            }
+        }
+
+        function updateOnlineUsers(onlineUsers) {
+            // Update the UI to show which contacts are online
+            const contactElements = document.querySelectorAll('.contact-item');
+            contactElements.forEach(element => {
+                const nameElement = element.querySelector('.contact-name');
+                if (nameElement) {
+                    const username = nameElement.textContent;
+                    const isOnline = onlineUsers.includes(username);
+                    
+                    // Update online status indicator
+                    let statusDot = element.querySelector('.status-dot');
+                    if (!statusDot) {
+                        statusDot = document.createElement('span');
+                        statusDot.className = 'status-dot';
+                        element.appendChild(statusDot);
+                    }
+                    
+                    statusDot.className = isOnline ? 'status-dot online' : 'status-dot offline';
+                }
+            });
+        }
+
+        function sendWebSocketMessage(receiver, content, fileUrl = null, expirationHours = 24) {
+            if (!webSocket || webSocket.readyState !== WebSocket.OPEN) {
+                console.error('WebSocket not connected');
+                return false;
+            }
+            
+            const message = {
+                type: 'message',
+                sender: currentUser,
+                receiver: receiver,
+                content: content,
+                file_url: fileUrl,
+                expiration_hours: expirationHours
+            };
+            
+            webSocket.send(JSON.stringify(message));
+            return true;
+        }
+
+        function processNewMessage(message) {
+            // Only process if it's from or to the selected contact
+            if (selectedContact && 
+                ((message.sender === selectedContact && message.receiver === currentUser) || 
+                 (message.sender === currentUser && message.receiver === selectedContact))) {
+                
+                // Determine if this is a message from me
+                const isFromMe = message.sender === currentUser;
+                
+                // Determine which key to use for decryption
+                const keyUsername = isFromMe ? message.receiver : message.sender;
+                const key = getEncryptionKey(keyUsername);
+                
+                if (!key) {
+                    console.error(`No encryption key available for ${keyUsername}`);
+                    return;
+                }
+                
+                try {
+                    console.log(`Decrypting message from ${message.sender} to ${message.receiver}`);
+                    const decryptedContent = decryptMessage(message.content, key);
+                    
+                    // Only display if decryption was successful
+                    if (!decryptedContent.startsWith('Error:')) {
+                        displayMessage(message.sender, decryptedContent, message.file_url !== null, isFromMe);
+                    } else {
+                        console.error('Decryption failed:', decryptedContent);
+                    }
+                } catch (error) {
+                    console.error('Error processing message:', error);
+                }
+            } else {
+                // If it's a message from a contact that's not currently selected,
+                // show a notification or update the contact list to indicate new message
+                if (message.sender !== currentUser) {
+                    showMessageNotification(message.sender);
+                }
+            }
+        }
+
+        function showMessageNotification(sender) {
+            // Find the contact in the list and add a notification indicator
+            const contactElements = document.querySelectorAll('.contact-item');
+            contactElements.forEach(element => {
+                const nameElement = element.querySelector('.contact-name');
+                if (nameElement && nameElement.textContent === sender) {
+                    // Add notification dot if not already present
+                    if (!element.querySelector('.notification-dot')) {
+                        const dot = document.createElement('span');
+                        dot.className = 'notification-dot';
+                        element.appendChild(dot);
+                    }
+                }
+            });
+            
+            // Show browser notification if supported
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification('New Message', {
+                    body: `You have a new message from ${sender}`,
+                    icon: '/favicon.ico'
+                });
+            }
+        }
+    </script>
+</body>
+</html> 
