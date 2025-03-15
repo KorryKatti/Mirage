@@ -7,3 +7,4 @@ certificates/
 /archive/unable to decrypt/mirage/__pycache__
 .env
 .env
+pip_freeze.txt
