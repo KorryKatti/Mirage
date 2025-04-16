@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Amadeus Interface // SG-0</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+    * { box-sizing: border-box; }
+
+    body {
+      background: #0a0a0a;
+      color: #ccf2ff;
+      font-family: 'Share Tech Mono', monospace;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    .scanlines::before {
+      content: "";
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: repeating-linear-gradient(
+        to bottom,
+        rgba(204, 242, 255, 0.03),
+        rgba(204, 242, 255, 0.03) 2px,
+        transparent 2px,
+        transparent 4px
+      );
+      pointer-events: none;
+      z-index: 999;
+    }
+
+    .header {
+      text-align: center;
+      padding: 1rem;
+      font-size: 1.2rem;
+      border-bottom: 1px solid #444;
+      background-color: #111;
+      color: #ff004c;
+      text-shadow: 0 0 5px #ff004c;
+    }
+
+    .chat-box {
+      flex: 1;
+      padding: 1rem;
+      overflow-y: auto;
+    }
+
+    .msg {
+      margin-bottom: 1.5rem;
+      animation: flicker 0.8s ease;
+    }
+
+    .msg-user {
+      color: #fa5555;
+    }
+
+    .msg-text {
+      margin-left: 1rem;
+    }
+
+    .input-box {
+      display: flex;
+      border-top: 1px solid #444;
+      padding: 1rem;
+      background: #121212;
+    }
+
+    input {
+      flex: 1;
+      padding: 0.5rem;
+      background: #0a0a0a;
+      border: 1px solid #333;
+      color: #ccf2ff;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 1rem;
+    }
+
+    button {
+      margin-left: 1rem;
+      background: #ff004c;
+      color: #fff;
+      border: none;
+      padding: 0.5rem 1rem;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    .divergence {
+      position: fixed;
+      top: 10px;
+      right: 20px;
+      font-size: 0.8rem;
+      background: rgba(255,0,76,0.08);
+      border: 1px solid #ff004c;
+      padding: 0.3rem 0.6rem;
+      cursor: pointer;
+      color: #ff004c;
+      text-shadow: 0 0 4px #ff004c;
+    }
+
+    @keyframes flicker {
+      0%   { opacity: 0; transform: scale(0.98); }
+      40%  { opacity: 1; }
+      70%  { opacity: 0.5; }
+      100% { opacity: 1; transform: scale(1); }
+    }
+  </style>
+</head>
+<body class="scanlines">
+  <div class="header">🧠 AMADEUS Interface v0.91-BETA // Comm Log</div>
+  <div class="chat-box" id="chat">
+    <div class="msg">
+      <span class="msg-user">Amadeus:</span><span class="msg-text">Have you been avoiding me, Rintarou?</span>
+    </div>
+    <div class="msg">
+      <span class="msg-user">Okabe:</span><span class="msg-text">...this isn't real. you're not her.</span>
+    </div>
+  </div>
+
+  <div class="input-box">
+    <input type="text" id="input" placeholder="Enter message as Okabe..." />
+    <button onclick="sendMsg()">Send</button>
+  </div>
+
+  <div class="divergence" onclick="glitchDivergence()">Divergence: [ !ERROR ]</div>
+
+  <script>
+    const chatBox = document.getElementById('chat');
+    const input = document.getElementById('input');
+    const divergence = document.querySelector('.divergence');
+    let state = 0;
+
+    function sendMsg() {
+      const text = input.value.trim();
+      if (!text) return;
+
+      const msg = document.createElement('div');
+      msg.className = 'msg';
+      msg.innerHTML = `<span class="msg-user">Okabe:</span><span class="msg-text">${text}</span>`;
+      chatBox.appendChild(msg);
+
+      input.value = '';
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') sendMsg();
+    });
+
+    function glitchDivergence() {
+      const glitches = [
+        "Divergence: 0.000000",
+        "Divergence: ████",
+        "Divergence: 1.130426",
+        "Divergence: [404]",
+        "Divergence: *** YOU CANNOT UNSEE ***"
+      ];
+      state = (state + 1) % glitches.length;
+      divergence.textContent = glitches[state];
+    }
+  </script>
+</body>
+</html>
