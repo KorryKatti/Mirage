@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>MIRAGE Interface // V-0</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="scanlines">
+  <div class="header">🧠 MIRAGE Interface v0.0.3-BETA // Common</div>
+  <div class="chat-box" id="chat">
+    <div class="msg">
+      <span class="msg-user">Amadeus:</span><span class="msg-text">this is a test message</span>
+    </div>
+    <div class="msg">
+      <span class="msg-user">Okabe:</span><span class="msg-text">...another test message.</span>
+    </div>
+  </div>
+
+  <div class="input-box">
+    <input type="text" id="input" placeholder="Enter message as {username}..." />
+    <button onclick="sendMsg()">Send</button>
+  </div>
+
+  <div class="divergence" onclick="glitchDivergence()">Divergence: [ !ERROR ]</div>
+
+  <script>
+    const chatBox = document.getElementById('chat');
+    const input = document.getElementById('input');
+    const divergence = document.querySelector('.divergence');
+    let state = 0;
+
+    function sendMsg() {
+      const text = input.value.trim();
+      if (!text) return;
+
+      const msg = document.createElement('div');
+      msg.className = 'msg';
+      msg.innerHTML = `<span class="msg-user">Okabe:</span><span class="msg-text">${text}</span>`;
+      chatBox.appendChild(msg);
+
+      input.value = '';
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') sendMsg();
+    });
+
+    function glitchDivergence() {
+      const glitches = [
+        "Divergence: 0.000000",
+        "Divergence: ████",
+        "Divergence: 1.130426",
+        "Divergence: [404]",
+        "Divergence: *** YOU CANNOT UNSEE ***"
+      ];
+      state = (state + 1) % glitches.length;
+      divergence.textContent = glitches[state];
+    }
+  </script>
+</body>
+</html>
