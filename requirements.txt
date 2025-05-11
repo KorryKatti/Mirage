@@ -9,3 +9,4 @@ bcrypt
 requests
 websockets
 pyOpenSSL 
+flask-socketio

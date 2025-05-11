@@ -1,24 +1,21 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import socket
+from flask_socketio import SocketIO, send
+import threading
 
-SERVER_URL = "127.0.0.1"
+SERVER_URL = '127.0.0.1'
 SERVER_PORT = 6969
 
 # ------- MESSAGE SENDING LOGIC -------#
 def sender(nickname, message):
-    try:
-        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client.connect((SERVER_URL, SERVER_PORT))
-        client.send(f"{nickname} : {message}".encode("ascii"))
-        client.close()
-        return True
-    except Exception as e:
-        print("Error sending:", e)
-        return False
+    pass
+
+    
 # ------- MESSAGE SENDING LOGIC ENDS -------#
 
 app = Flask(__name__)
+socketio = SocketIO(app)
 CORS(app)
 
 @app.route('/send_message', methods=['POST'])
@@ -42,6 +39,11 @@ def send_message():
         return jsonify({'status': 'message sent'}), 200
     else:
         return jsonify({'error': 'failed to send message'}), 500
+    
+
+@app.route('/')
+def index():
+    return "if you in the mood , we can tiptoe to the moon , just like a movie scene , table for two"
 
 if __name__ == '__main__':
     app.run(debug=True)
