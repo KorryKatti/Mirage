@@ -10,7 +10,6 @@ SERVER_PORT = 6969
 # ------- MESSAGE SENDING LOGIC -------#
 def sender(nickname, message):
     pass
-
     
 # ------- MESSAGE SENDING LOGIC ENDS -------#
 
