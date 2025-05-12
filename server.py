@@ -1,49 +1,84 @@
-import threading
-import socket
+from flask import Flask,request,jsonify
+from flask_cors import CORS
+import sqlite3
+import os
+from werkzeug.security import generate_password_hash
 
-host = '127.0.0.1'
-port = 6969
 
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind((host,port))
-server.listen() # starts listening for incoming messages
+app = Flask(__name__)
+CORS(app)
 
-clients = []
-nicknames = []
 
-def broadcast(message):
-    for client in clients:
-        client.send(message)
+DB_FILE = "db.sqlite"
 
-def handle(client):
-    while True:
-        try:
-            message = client.recv(1024)
-            broadcast(message)
-        except:
-            index = clients.index(client)
-            clients.remove(client)
-            client.close()
-            nickname = nicknames[index]
-            broadcast(f"{nickname} left the chat".encode("ascii"))
-            nicknames.remove(nickname)
-            break
 
-def receive():
-    while True:
-        client,address = server.accept()
-        print(f"Connected with {address}")
+# init db
+def init_db():
+    if not os.path.exists(DB_FILE):
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute('''
+                  CREATE TABLE users(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  username TEXT UNIQUE NOT NULL,
+                  email TEXT UNIQUE NOT NULL,
+                  avatar_url TEXT,
+                  description TEXT,
+                  password TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                  )'''
+        )
+        conn.commit()
+        conn.close()
+        print(" da database is uh now initi uh lized")
 
-        client.send("NICK".encode("ascii"))
-        nickname = client.recv(1024).decode("ascii")
-        nicknames.append(nickname)
-        clients.append(client)
+init_db()
 
-        print(f"Nickname of client just connected is {nickname}")
-        broadcast(f"{nickname} joined the chat".encode("ascii"))
-        client.send("connected to the server".encode("ascii"))
+@app.route('/api/register',methods=['POST'])
+def register():
+    data = request.get_json()
+    username = data.get('username')
+    email = data.get('email')
+    avatar_url = data.get('avatar_url')
+    description = data.get('description')
+    password = data.get('password')
 
-        thread = threading.Thread(target=handle, args=(client,))
-        thread.start()
+    if not username or not email or not password:
+        return jsonify({'error':"I can't see a single field you filled"}),400
+    
+    word_count = len(description.split())
+    if word_count > 500:
+        return jsonify({'error':"You are talking too much in the description"}),400
+    
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
 
-receive()
+
+    # existing checking
+    c.execute('SELECT * FROM users WHERE username=? OR email=?',(username,email))
+    if c.fetchone():
+        conn.close()
+        return jsonify({'error':" the user already exists"}),400
+    
+    # i hash da password
+    hashed_pw = generate_password_hash(password)
+
+    c.execute('''
+    INSERT INTO users (username,email,avatar_url,description,password)
+              VALUES (?,?,?,?,?)             
+''',(username,email,avatar_url,description,hashed_pw))
+    
+    conn.commit()
+    conn.close()
+
+    return jsonify({'message':"Welcome to MIRAGE"}),201
+
+
+
+@app.route('/')
+def index():
+    return " hello world "
+
+if __name__ == '__main__':
+    app.run(debug=True)
+
