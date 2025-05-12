@@ -2,11 +2,11 @@ from flask import Flask,request,jsonify
 from flask_cors import CORS
 import sqlite3
 import os
-from werkzeug.security import generate_password_hash
+from werkzeug.security import generate_password_hash,check_password_hash
 
 
 app = Flask(__name__)
-CORS(app)
+CORS(app,supports_credentials=True)
 
 
 DB_FILE = "db.sqlite"
@@ -37,11 +37,12 @@ init_db()
 @app.route('/api/register',methods=['POST'])
 def register():
     data = request.get_json()
-    username = data.get('username')
-    email = data.get('email')
-    avatar_url = data.get('avatar_url')
-    description = data.get('description')
-    password = data.get('password')
+    username = data.get('username', '').strip()
+    email = data.get('email', '').strip()
+    avatar_url = data.get('avatar_url', '').strip()
+    description = data.get('description') or ''
+    password = data.get('password', '')
+
 
     if not username or not email or not password:
         return jsonify({'error':"I can't see a single field you filled"}),400
@@ -78,6 +79,45 @@ def register():
 @app.route('/')
 def index():
     return " hello world "
+
+
+@app.route('/api/login',methods=['POST'])
+def login():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({'error':"I can't see a single field you filled"}),400
+    
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT password FROM users WHERE username=?',(username,))
+    row = c.fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({'error':'user not found'}),404
+    
+    stored_password = row[0]
+    if not check_password_hash(stored_password,password):
+        return jsonify({'error':'wrong password'}),401
+    
+    return jsonify({'message':"login successful"}),200
+
+
+@app.route('/api/usercount', methods=['GET'])
+def user_count():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT COUNT(*) FROM users')
+    count = c.fetchone()[0]
+    conn.close()
+    return str(count), 200  # plain text
+
+
+
+
 
 if __name__ == '__main__':
     app.run(debug=True)
