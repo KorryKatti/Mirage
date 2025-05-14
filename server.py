@@ -3,7 +3,8 @@ from flask_cors import CORS
 import sqlite3
 import os
 from werkzeug.security import generate_password_hash,check_password_hash
-
+import uuid
+import time
 
 app = Flask(__name__)
 CORS(app,supports_credentials=True)
@@ -25,6 +26,7 @@ def init_db():
                   avatar_url TEXT,
                   description TEXT,
                   password TEXT NOT NULL,
+                  token TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                   )'''
         )
@@ -75,35 +77,130 @@ def register():
     return jsonify({'message':"Welcome to MIRAGE"}),201
 
 
+MAX_MESSAGES = 100
+MESSAGE_LIFESPAN = 60 * 30 # 30 minutes since i don't expect much traffic yet
 
-@app.route('/')
-def index():
-    return " hello world "
+messages = []
+
+@app.route('/api/send_message', methods=['POST'])
+def send_message():
+    data = request.get_json()
+    username = data.get('username')
+    message = data.get('message')
+    token = request.headers.get('Authorization')
+
+    if not username or not message or not token:
+        return jsonify({'error': "Missing fields or token"}), 400
+
+    # token validation
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT username FROM users WHERE token=?", (token,))
+    row = c.fetchone()
+    conn.close()
+
+    if not row or row[0] != username:
+        return jsonify({'error': "Unauthorized"}), 401
+
+    if not message.strip():
+        return jsonify({'error': "Empty message"}), 400
+
+    # everything's clean, accept message
+    current_time = time.time()
+    message_data = {
+        'username': username,
+        'message': message,
+        'created_at': current_time
+    }
+
+    messages.append(message_data)
 
 
-@app.route('/api/login',methods=['POST'])
+    messages[:] = [m for m in messages if current_time - m['created_at'] < MESSAGE_LIFESPAN]
+    if len(messages) > MAX_MESSAGES:
+        messages.pop(0)
+
+    return jsonify({'message': "sent"}), 200
+
+@app.route('/api/get_messages', methods=['GET'])
+def get_messages():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'error': 'no token provided'}), 401
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT username FROM users WHERE token = ?', (token,))
+    row = c.fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({'error': 'invalid token'}), 401
+
+    return jsonify({'messages': messages}), 200
+
+
+# @app.route('/')
+# def index():
+#     return " hello world "
+
+
+@app.route('/api/login', methods=['POST'])
 def login():
     data = request.get_json()
     username = data.get('username')
     password = data.get('password')
 
     if not username or not password:
-        return jsonify({'error':"I can't see a single field you filled"}),400
-    
+        return jsonify({'error': "I can't see a single field you filled"}), 400
+
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute('SELECT password FROM users WHERE username=?',(username,))
+    c.execute('SELECT password FROM users WHERE username=?', (username,))
     row = c.fetchone()
+    if not row:
+        conn.close()
+        return jsonify({'error': 'user not found'}), 404
+
+    stored_password = row[0]
+    if not check_password_hash(stored_password, password):
+        conn.close()
+        return jsonify({'error': 'wrong password'}), 401
+
+    token = str(uuid.uuid4())
+    c.execute('UPDATE users SET token=? WHERE username=?', (token, username))
+    conn.commit()
     conn.close()
 
+    return jsonify({'token': token, 'username': username}), 200
+
+@app.route('/api/logout', methods=['POST'])
+def logout():
+    data = request.get_json()
+    token = data.get('token')
+
+    if not token:
+        return jsonify({'error': 'no token provided'}), 400
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # check if token exists
+    c.execute('SELECT username FROM users WHERE token=?', (token,))
+    row = c.fetchone()
+
     if not row:
-        return jsonify({'error':'user not found'}),404
-    
-    stored_password = row[0]
-    if not check_password_hash(stored_password,password):
-        return jsonify({'error':'wrong password'}),401
-    
-    return jsonify({'message':"login successful"}),200
+        conn.close()
+        return jsonify({'error': 'invalid token'}), 401
+
+    # clear token
+    c.execute('UPDATE users SET token=NULL WHERE token=?', (token,))
+    conn.commit()
+    conn.close()
+
+    return jsonify({'message': 'logged out successfully'}), 200
+
+
 
 
 @app.route('/api/usercount', methods=['GET'])
