@@ -8,3 +8,4 @@ certificates/
 .env
 .env
 pip_freeze.txt
+db.sqlite
