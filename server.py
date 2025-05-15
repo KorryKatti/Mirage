@@ -213,7 +213,27 @@ def user_count():
     return str(count), 200  # plain text
 
 
+# post 0.0.3 additions
 
+@app.route('/api/user/<username>',methods=['GET'])
+def get_user(username):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT * FROM users WHERE username=?',(username,))
+    row = c.fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({'error':'user not found'}),404
+    
+    user_data = {
+        'username': row[1],
+        'avatar_url':row[3],
+        'description':row[4],
+        'created_at':row[6]
+    }
+
+    return jsonify(user_data),200
 
 
 if __name__ == '__main__':
