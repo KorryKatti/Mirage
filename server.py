@@ -16,45 +16,51 @@ DB_FILE = "db.sqlite"
 
 # init db
 def init_db():
-    if not os.path.exists(DB_FILE):
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        c.execute('''
-                  CREATE TABLE users(
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    
+    # Check if 'users' table exists
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+    if not c.fetchone():
+        c.execute('''CREATE TABLE users(
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  username TEXT UNIQUE NOT NULL,
-                  email TEXT UNIQUE NOT NULL,
-                  avatar_url TEXT,
-                  description TEXT,
-                  password TEXT NOT NULL,
-                  token TEXT,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    avatar_url TEXT,
+                    description TEXT,
+                    password TEXT NOT NULL,
+                    token TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                  )'''
-        )
-
-        c.execute('''
-            CREATE TABLE rooms (
+                  )''')
+        print("Created users table")
+    
+    # Check if 'rooms' table exists
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='rooms'")
+    if not c.fetchone():
+        c.execute('''CREATE TABLE rooms (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  name TEXT UNIQUE NOT NULL,
-                  is_private INTEGER DEFAULT 0,
-                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                  )
-                  ''')
-        c.execute('''
-    CREATE TABLE room_members (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        room_id INTEGER NOT NULL,
-        username TEXT NOT NULL,
-        joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(room_id) REFERENCES rooms(id),
-        FOREIGN KEY(username) REFERENCES users(username)
-    )
-''')
-
-
-        conn.commit()
-        conn.close()
-        print(" da database is uh now initi uh lized")
+                    name TEXT UNIQUE NOT NULL,
+                    is_private INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                  )''')
+        print("Created rooms table")
+    
+    # Check if 'room_members' table exists
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='room_members'")
+    if not c.fetchone():
+        c.execute('''CREATE TABLE room_members (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    room_id INTEGER NOT NULL,
+                    username TEXT NOT NULL,
+                    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(room_id) REFERENCES rooms(id),
+                    FOREIGN KEY(username) REFERENCES users(username)
+                  )''')
+        print("Created room_members table")
+    
+    conn.commit()
+    conn.close()
+    print("Database initialization completed")
 
 init_db()
 
@@ -123,62 +129,62 @@ def save_messages(messages):
 
 messages = load_messages()
 
-@app.route('/api/send_message', methods=['POST'])
-def send_message():
-    data = request.get_json()
-    username = data.get('username')
-    message = data.get('message')
-    token = request.headers.get('Authorization')
+# @app.route('/api/send_message', methods=['POST'])
+# def send_message():
+#     data = request.get_json()
+#     username = data.get('username')
+#     message = data.get('message')
+#     token = request.headers.get('Authorization')
 
-    if not username or not message or not token:
-        return jsonify({'error': "Missing fields or token"}), 400
+#     if not username or not message or not token:
+#         return jsonify({'error': "Missing fields or token"}), 400
 
-    # token validation
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT username FROM users WHERE token=?", (token,))
-    row = c.fetchone()
-    conn.close()
+#     # token validation
+#     conn = sqlite3.connect(DB_FILE)
+#     c = conn.cursor()
+#     c.execute("SELECT username FROM users WHERE token=?", (token,))
+#     row = c.fetchone()
+#     conn.close()
 
-    if not row or row[0] != username:
-        return jsonify({'error': "Unauthorized"}), 401
+#     if not row or row[0] != username:
+#         return jsonify({'error': "Unauthorized"}), 401
 
-    if not message.strip():
-        return jsonify({'error': "Empty message"}), 400
+#     if not message.strip():
+#         return jsonify({'error': "Empty message"}), 400
 
-    # everything's clean, accept message
-    current_time = time.time()
-    message_data = {
-        'username': username,
-        'message': message,
-        'created_at': current_time
-    }
+#     # everything's clean, accept message
+#     current_time = time.time()
+#     message_data = {
+#         'username': username,
+#         'message': message,
+#         'created_at': current_time
+#     }
 
-    messages.append(message_data)
+#     messages.append(message_data)
 
 
-    messages[:] = [m for m in messages if current_time - m['created_at'] < MESSAGE_LIFESPAN]
-    if len(messages) > MAX_MESSAGES:
-        messages.pop(0)
+#     messages[:] = [m for m in messages if current_time - m['created_at'] < MESSAGE_LIFESPAN]
+#     if len(messages) > MAX_MESSAGES:
+#         messages.pop(0)
 
-    return jsonify({'message': "sent"}), 200
+#     return jsonify({'message': "sent"}), 200
 
-@app.route('/api/get_messages', methods=['GET'])
-def get_messages():
-    token = request.headers.get('Authorization')
-    if not token:
-        return jsonify({'error': 'no token provided'}), 401
+# @app.route('/api/get_messages', methods=['GET'])
+# def get_messages():
+#     token = request.headers.get('Authorization')
+#     if not token:
+#         return jsonify({'error': 'no token provided'}), 401
 
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute('SELECT username FROM users WHERE token = ?', (token,))
-    row = c.fetchone()
-    conn.close()
+#     conn = sqlite3.connect(DB_FILE)
+#     c = conn.cursor()
+#     c.execute('SELECT username FROM users WHERE token = ?', (token,))
+#     row = c.fetchone()
+#     conn.close()
 
-    if not row:
-        return jsonify({'error': 'invalid token'}), 401
+#     if not row:
+#         return jsonify({'error': 'invalid token'}), 401
 
-    return jsonify({'messages': messages}), 200
+#     return jsonify({'messages': messages}), 200
 
 
 # @app.route('/')
@@ -348,6 +354,96 @@ def join_room():
 
     return jsonify({'message': f'{user[0]} joined room "{room_name}"'}), 200
 
+@app.route('/api/send_room_message', methods=['POST'])
+def send_room_message():
+    data = request.get_json()
+    token = request.headers.get('Authorization')
+    room_id = data.get('room_id')
+    message = data.get('message', '').strip()
+
+    if not token or not room_id or not message:
+        return jsonify({'error': 'missing fields'}), 400
+
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute('SELECT username FROM users WHERE token=?', (token,))
+        user = c.fetchone()
+        if not user:
+            return jsonify({'error': 'unauthorized'}), 401
+
+        c.execute('SELECT id FROM room_members WHERE room_id=? AND username=?', (room_id, user[0]))
+        if not c.fetchone():
+            return jsonify({'error': 'you are not in this room'}), 403
+
+    message_data = {
+        'username': user[0],
+        'message': message,
+        'created_at': time.time(),
+        'room_id': room_id
+    }
+
+    messages.append(message_data)
+    now = time.time()
+    messages[:] = [m for m in messages if now - m['created_at'] < MESSAGE_LIFESPAN]
+    if len(messages) > MAX_MESSAGES:
+        messages.pop(0)
+    save_messages(messages)
+
+    return jsonify({'message': 'sent'}), 200
+
+@app.route('/api/get_room_messages', methods=['GET'])
+def get_room_messages():
+    token = request.headers.get('Authorization')
+    room_id = request.args.get('room_id')
+
+    if not token or not room_id:
+        return jsonify({'error': 'missing token or room id'}), 400
+
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute('SELECT username FROM users WHERE token=?', (token,))
+        user = c.fetchone()
+        if not user:
+            return jsonify({'error': 'unauthorized'}), 401
+
+        c.execute('SELECT id FROM room_members WHERE room_id=? AND username=?', (room_id, user[0]))
+        if not c.fetchone():
+            return jsonify({'error': 'you are not in this room'}), 403
+
+    filtered = [m for m in messages if str(m.get('room_id')) == str(room_id)]
+    return jsonify({'messages': filtered}), 200
+
+@app.route('/api/rooms', methods=['GET'])
+def list_rooms():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'error': 'missing token'}), 400
+
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute('SELECT username FROM users WHERE token=?', (token,))
+        user = c.fetchone()
+        if not user:
+            return jsonify({'error': 'unauthorized'}), 401
+
+        c.execute('SELECT id, name FROM rooms WHERE is_private=0')
+        rooms = c.fetchall()
+
+        c.execute('SELECT room_id FROM room_members WHERE username=?', (user[0],))
+        user_rooms = {r[0] for r in c.fetchall()}
+
+    data = []
+    for room_id, name in rooms:
+        data.append({
+            'room_id': room_id,
+            'name': name,
+            'joined': room_id in user_rooms
+        })
+
+    return jsonify({'rooms': data}), 200
+
+
+init_db()
 
 if __name__ == '__main__':
     app.run(debug=True)
