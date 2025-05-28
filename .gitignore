@@ -9,3 +9,4 @@ certificates/
 .env
 pip_freeze.txt
 db.sqlite
+messages.txt
