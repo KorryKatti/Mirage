@@ -282,33 +282,39 @@ def get_user(username):
 
     return jsonify(user_data),200
 
-@app.route('/api/create_room',methods=['POST'])
+@app.route('/api/create_room', methods=['POST'])
 def create_room():
     data = request.get_json()
-    room_name = data.get('room_name','').strip()
-    is_private = int(data.get('is_private',0))
+    room_name = data.get('room_name', '').strip()
+    is_private = int(data.get('is_private', 0))
     token = request.headers.get('Authorization')
 
     if not room_name or not token:
-        return jsonify({'error':"invalid fields received"}),400
+        return jsonify({'error': "invalid fields received"}), 400
     
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        c.execute('SELECT username from users WHERE token=?',(token,))
+        c.execute('SELECT username from users WHERE token=?', (token,))
         user = c.fetchone()
 
         if not user:
-            return jsonify({'error':"unauthorized"}),401
+            return jsonify({'error': "unauthorized"}), 401
         
-        c.execute('SELECT id FROM rooms WHERE name=?',(room_name))
+        # Ensure room_name is a single string
+        if isinstance(room_name, (list, tuple)):
+            room_name = room_name[0]  # Take the first element if it's a list
+        elif not isinstance(room_name, str):
+            return jsonify({'error': "room_name must be a string"}), 400
+
+        c.execute('SELECT id FROM rooms WHERE name=?', (room_name,))
         if c.fetchone():
-            return jsonify({'error':"room already exists"}),400
+            return jsonify({'error': "room already exists"}), 400
         
-        # create room
+        # Create room
         c.execute('INSERT INTO rooms (name, is_private) VALUES (?, ?)', (room_name, is_private))
         room_id = c.lastrowid
 
-        # add creator to members
+        # Add creator to members
         c.execute('INSERT INTO room_members (room_id, username) VALUES (?, ?)', (room_id, user[0]))
         conn.commit()
     
@@ -442,8 +448,9 @@ def list_rooms():
 
     return jsonify({'rooms': data}), 200
 
-
-init_db()
+@app.route('/api/ping', methods=['GET'])
+def ping():
+    return jsonify({'message': 'pong'}), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
