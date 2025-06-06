@@ -57,6 +57,20 @@ def init_db():
                     FOREIGN KEY(username) REFERENCES users(username)
                   )''')
         print("Created room_members table")
+
+    # Check if 'inbox messages' table exists 
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='inbox_messages'")
+    if not c.fetchone():
+        c.execute('''CREATE TABLE inbox_messages(
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  sender TEXT NOT NULL,
+                  recipient TEXT NOT NULL,
+                  message TEXT NOT NULL,
+                  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                  FOREIGN KEY(sender) REFERENCES users(username),
+                  FOREIGN KEY(recipient) REFERENCES users(username)
+                  )''')
+        print("create inbox messages table")
     
     conn.commit()
     conn.close()
@@ -128,69 +142,6 @@ def save_messages(messages):
         json.dump(messages, f)
 
 messages = load_messages()
-
-# @app.route('/api/send_message', methods=['POST'])
-# def send_message():
-#     data = request.get_json()
-#     username = data.get('username')
-#     message = data.get('message')
-#     token = request.headers.get('Authorization')
-
-#     if not username or not message or not token:
-#         return jsonify({'error': "Missing fields or token"}), 400
-
-#     # token validation
-#     conn = sqlite3.connect(DB_FILE)
-#     c = conn.cursor()
-#     c.execute("SELECT username FROM users WHERE token=?", (token,))
-#     row = c.fetchone()
-#     conn.close()
-
-#     if not row or row[0] != username:
-#         return jsonify({'error': "Unauthorized"}), 401
-
-#     if not message.strip():
-#         return jsonify({'error': "Empty message"}), 400
-
-#     # everything's clean, accept message
-#     current_time = time.time()
-#     message_data = {
-#         'username': username,
-#         'message': message,
-#         'created_at': current_time
-#     }
-
-#     messages.append(message_data)
-
-
-#     messages[:] = [m for m in messages if current_time - m['created_at'] < MESSAGE_LIFESPAN]
-#     if len(messages) > MAX_MESSAGES:
-#         messages.pop(0)
-
-#     return jsonify({'message': "sent"}), 200
-
-# @app.route('/api/get_messages', methods=['GET'])
-# def get_messages():
-#     token = request.headers.get('Authorization')
-#     if not token:
-#         return jsonify({'error': 'no token provided'}), 401
-
-#     conn = sqlite3.connect(DB_FILE)
-#     c = conn.cursor()
-#     c.execute('SELECT username FROM users WHERE token = ?', (token,))
-#     row = c.fetchone()
-#     conn.close()
-
-#     if not row:
-#         return jsonify({'error': 'invalid token'}), 401
-
-#     return jsonify({'messages': messages}), 200
-
-
-# @app.route('/')
-# def index():
-#     return " hello world "
-
 
 @app.route('/api/login', methods=['POST'])
 def login():
@@ -451,6 +402,180 @@ def list_rooms():
 @app.route('/api/ping', methods=['GET'])
 def ping():
     return jsonify({'message': 'pong'}), 200
+
+# inbox feature for system messages as well as private messaging between users
+
+@app.route('/api/send_inbox_message',methods=['POST'])
+def send_inbox_message():
+    data = request.get_json()
+    token = request.headers.get('Authorization')
+    recipient = data.get('recipient')
+    message = data.get('message','')
+    # do the message sending and storing
+    if not token:
+        return jsonify({'error':'invalid token , please re-login'}),401
+    
+    if not recipient or not message:
+        return jsonify({'error':'missing recipient or message'}),400
+    
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT username FROM users WHERE token=?',(token,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error':'unauthorized'}),401
+    sender = user[0]
+    
+    c.execute('SELECT username FROM users WHERE username=?',(recipient,))
+    recipient = c.fetchone()
+    if not recipient:
+        conn.close()
+        return jsonify({'erorr':'recipient not found'}),404
+    recipient = recipient[0]
+    # inserting messages into the table
+    c.execute('INSERT INTO inbox_messages (sender,recipient,message) VALUES (?,?,?)',(sender,recipient,message))
+    conn.commit()
+    conn.close()
+    return jsonify({'message':'message sent'}),200
+
+# @app.route('/api/inbox',methods=['GET'])
+# def inbox():
+#     token = request.headers.get('Authorization')
+#     if not token:
+#         return jsonify({'error':'invalid token , please re-login'}),401
+#     conn = sqlite3.connect(DB_FILE)
+#     c = conn.cursor()
+#     c.execute('SELECT username FROM users WHERE token=?',(token,))
+#     user = c.fetchone()
+#     if not user:
+#         conn.close()
+#         return jsonify({'error':'unauthorized'}),401
+#     username = user[0]
+#     c.execute('SELECT * FROM inbox_messages WHERE recipient=? ORDER BY created_at DESC',(username,))
+#     # get user avatar_url too
+#     c.execute('SELECT avatar_url FROM users WHERE username=?', (username,))
+#     avatar_url = c.fetchone()
+#     messages = c.fetchall()
+#     conn.close()
+#     inbox_data = []
+#     for msg in messages:
+#         inbox_data.append({
+#             'id':msg[0],
+#             'sender':msg[1],
+#             'recipient':msg[2],
+#             'message':msg[3],
+#             'created_at':msg[4],
+#             'avatar_url': avatar_url[0] if avatar_url else "https://i.pinimg.com/736x/20/da/fa/20dafa83d38f2277472e132bf1f21c22.jpg"
+#         })
+    
+#     return jsonify({'messages':inbox_data}),200
+
+@app.route('/api/inbox', methods=['GET'])
+def inbox():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'error': 'invalid token , please re-login'}), 401
+    
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT username FROM users WHERE token=?', (token,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error': 'unauthorized'}), 401
+    username = user[0]
+    
+    # Corrected query to get sender's avatar
+    c.execute('''
+        SELECT im.id, im.sender, im.recipient, im.message, im.created_at,
+               u.avatar_url AS sender_avatar
+        FROM inbox_messages im
+        LEFT JOIN users u ON im.sender = u.username
+        WHERE im.recipient=?
+        ORDER BY im.created_at DESC
+    ''', (username,))
+    
+    messages = c.fetchall()
+    conn.close()
+    
+    inbox_data = []
+    for msg in messages:
+        inbox_data.append({
+            'id': msg[0],
+            'sender': msg[1],
+            'recipient': msg[2],
+            'message': msg[3],
+            'created_at': msg[4],
+            'avatar_url': msg[5] or "https://i.pinimg.com/736x/20/da/fa/20dafa83d38f2277472e132bf1f21c22.jpg"
+        })
+    
+    return jsonify({'messages': inbox_data}), 200
+
+@app.route('/api/delete_inbox_message',methods=['POST'])
+def delete_inbox_message():
+    data = request.get_json()
+    token = request.headers.get('Authorization')
+    message_id = data.get('message_id')
+
+    if not token:
+        return jsonify({'error': 'invalid token, please re-login'}), 401
+    
+    if not message_id:
+        return jsonify({'error': 'missing message ID'}), 400
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT username FROM users WHERE token=?', (token,))
+    user = c.fetchone()
+    
+    if not user:
+        conn.close()
+        return jsonify({'error': 'unauthorized'}), 401
+    
+    username = user[0]
+    
+    # Check if the message exists and belongs to the user
+    c.execute('SELECT * FROM inbox_messages WHERE id=? AND recipient=?', (message_id, username))
+    msg = c.fetchone()
+    
+    if not msg:
+        conn.close()
+        return jsonify({'error': 'message not found or unauthorized access'}), 404
+    
+    # Delete the message
+    c.execute('DELETE FROM inbox_messages WHERE id=?', (message_id,))
+    conn.commit()
+    conn.close()
+
+    return jsonify({'message': 'message deleted successfully'}), 200
+
+# get number of messages in inbox
+@app.route('/api/inbox_count',methods=['GET'])
+def inbox_count():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'error': 'invalid token, please re-login'}), 401
+    
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT username FROM users WHERE token=?', (token,))
+    user = c.fetchone()
+    
+    if not user:
+        conn.close()
+        return jsonify({'error': 'unauthorized'}), 401
+    
+    username = user[0]
+    
+    c.execute('SELECT COUNT(*) FROM inbox_messages WHERE recipient=?', (username,))
+    count = c.fetchone()[0]
+    
+    conn.close()
+    
+    return jsonify({'inbox_count': count}), 200
+
+
 
 if __name__ == '__main__':
     app.run(debug=True)
