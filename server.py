@@ -8,7 +8,10 @@ import time
 import json
 
 app = Flask(__name__)
-CORS(app,supports_credentials=True)
+CORS(app, 
+     supports_credentials=True,
+     resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "DELETE"], "allow_headers": ["Authorization", "Content-Type"]}}
+)
 
 
 DB_FILE = "db.sqlite"
@@ -439,37 +442,6 @@ def send_inbox_message():
     conn.close()
     return jsonify({'message':'message sent'}),200
 
-# @app.route('/api/inbox',methods=['GET'])
-# def inbox():
-#     token = request.headers.get('Authorization')
-#     if not token:
-#         return jsonify({'error':'invalid token , please re-login'}),401
-#     conn = sqlite3.connect(DB_FILE)
-#     c = conn.cursor()
-#     c.execute('SELECT username FROM users WHERE token=?',(token,))
-#     user = c.fetchone()
-#     if not user:
-#         conn.close()
-#         return jsonify({'error':'unauthorized'}),401
-#     username = user[0]
-#     c.execute('SELECT * FROM inbox_messages WHERE recipient=? ORDER BY created_at DESC',(username,))
-#     # get user avatar_url too
-#     c.execute('SELECT avatar_url FROM users WHERE username=?', (username,))
-#     avatar_url = c.fetchone()
-#     messages = c.fetchall()
-#     conn.close()
-#     inbox_data = []
-#     for msg in messages:
-#         inbox_data.append({
-#             'id':msg[0],
-#             'sender':msg[1],
-#             'recipient':msg[2],
-#             'message':msg[3],
-#             'created_at':msg[4],
-#             'avatar_url': avatar_url[0] if avatar_url else "https://i.pinimg.com/736x/20/da/fa/20dafa83d38f2277472e132bf1f21c22.jpg"
-#         })
-    
-#     return jsonify({'messages':inbox_data}),200
 
 @app.route('/api/inbox', methods=['GET'])
 def inbox():
@@ -575,6 +547,103 @@ def inbox_count():
     
     return jsonify({'inbox_count': count}), 200
 
+
+# update 0.0.4 , now brings file sharing in rooms , return url of file by uploading it to 0x0.st 
+
+import requests
+from flask_cors import cross_origin
+
+def file_uploader(file):
+    try:
+        file.stream.seek(0)
+        response = requests.put(
+            f'https://transfer.sh/{file.filename}',
+            data=file.stream,
+            headers={
+                'User-Agent': 'Mozilla/5.0',
+                'Content-Type': file.mimetype or 'application/octet-stream'
+            }
+        )
+        response.raise_for_status()
+        return response.text.strip()
+    except requests.exceptions.HTTPError as http_err:
+        raise Exception(f'HTTP Error: {http_err.response.status_code} - {http_err.response.text}')
+    except requests.exceptions.ConnectionError:
+        raise Exception('Connection error: Could not connect to the file upload service.')
+    except requests.exceptions.Timeout:
+        raise Exception('Timeout error: The file upload request took too long.')
+    except Exception as err:
+        raise Exception(f'Unexpected error during file upload: {str(err)}')
+
+
+@app.route('/api/upload_file', methods=['POST'])
+@cross_origin()
+def upload_file():
+    try:
+        token = request.headers.get('Authorization')
+        if not token:
+            return jsonify({'error': 'Invalid token or token missing'}), 401
+        
+        file = request.files.get('file')
+        if not file:
+            return jsonify({'error': 'No file provided'}), 400
+        if file.filename == '':
+            return jsonify({'error': 'No file name provided'}), 400
+        
+        room_id = request.form.get('room_id')
+        if not room_id:
+            return jsonify({'error': 'No room ID provided'}), 400
+        
+        if file.content_length > 12 * 1024 * 1024:
+            return jsonify({'error': 'File size exceeds the 12MB limit'}), 400
+        
+        print(f"Attempting to upload file: {file.filename} to room {room_id}")
+        
+        try:
+            file_url = file_uploader(file)
+            print(f"File uploaded successfully: {file_url}")
+        except Exception as e:
+            print(f"File upload failed: {str(e)}")
+            return jsonify({'error': f'File upload failed: {str(e)}'}), 500
+        
+        with sqlite3.connect(DB_FILE) as conn:
+            c = conn.cursor()
+            c.execute('SELECT username FROM users WHERE token=?', (token,))
+            user = c.fetchone()
+            if not user:
+                return jsonify({'error': 'Unauthorized access'}), 401
+            username = user[0]
+            
+            c.execute('SELECT id FROM room_members WHERE room_id=? AND username=?', (room_id, username))
+            if not c.fetchone():
+                return jsonify({'error': 'You are not a member of this room'}), 403
+            
+            message_data = {
+                'username': username,
+                'message': f'{file_url}',
+                'created_at': time.time(),
+                'room_id': room_id
+            }
+            messages.append(message_data)
+            
+            now = time.time()
+            messages[:] = [m for m in messages if now - m['created_at'] < MESSAGE_LIFESPAN]
+            
+            if len(messages) > MAX_MESSAGES:
+                messages.pop(0)
+            
+            save_messages(messages)
+            
+        return jsonify({
+            'message': 'File uploaded successfully',
+            'file_url': file_url
+        }), 200
+        
+    except Exception as e:
+        print(f"Unexpected error in upload_file: {str(e)}")
+        return jsonify({
+            'error': f'Internal server error: {str(e)}'
+        }), 500
 
 
 if __name__ == '__main__':
