@@ -10,3 +10,4 @@ requests
 websockets
 pyOpenSSL 
 flask-socketio
+flask_cors

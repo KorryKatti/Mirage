@@ -556,16 +556,16 @@ from flask_cors import cross_origin
 def file_uploader(file):
     try:
         file.stream.seek(0)
-        response = requests.put(
-            f'https://transfer.sh/{file.filename}',
-            data=file.stream,
+        response = requests.post(
+            'https://tmpfiles.org/api/v1/upload',
+            files={'file': (file.filename, file.stream, file.mimetype or 'application/octet-stream')},
             headers={
-                'User-Agent': 'Mozilla/5.0',
-                'Content-Type': file.mimetype or 'application/octet-stream'
+                'User-Agent': 'Mozilla/5.0'
             }
         )
         response.raise_for_status()
-        return response.text.strip()
+        data = response.json()
+        return data.get('data', {}).get('url', '').strip()
     except requests.exceptions.HTTPError as http_err:
         raise Exception(f'HTTP Error: {http_err.response.status_code} - {http_err.response.text}')
     except requests.exceptions.ConnectionError:
@@ -594,8 +594,9 @@ def upload_file():
         if not room_id:
             return jsonify({'error': 'No room ID provided'}), 400
         
-        if file.content_length > 12 * 1024 * 1024:
-            return jsonify({'error': 'File size exceeds the 12MB limit'}), 400
+        if file.content_length > 24 * 1024 * 1024:
+            return jsonify({'error': 'File size exceeds the 24MB limit'}), 400
+
         
         print(f"Attempting to upload file: {file.filename} to room {room_id}")
         
