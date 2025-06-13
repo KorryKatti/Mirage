@@ -6,6 +6,7 @@ from werkzeug.security import generate_password_hash,check_password_hash
 import uuid
 import time
 import json
+import hashlib
 
 app = Flask(__name__)
 CORS(app, 
@@ -16,11 +17,24 @@ CORS(app,
 
 DB_FILE = "db.sqlite"
 
+def hash_pw(password: str) -> str:
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
 
 # init db
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+
+    try:
+        c.execute('ALTER TABLE rooms ADD COLUMN password_hash TEXT')
+        print("Column added ✅")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e):
+            print("password_hash column already exists")
+        else:
+            raise
+
     
     # Check if 'users' table exists
     c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
@@ -44,6 +58,7 @@ def init_db():
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT UNIQUE NOT NULL,
                     is_private INTEGER DEFAULT 0,
+                    password_hash TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                   )''')
         print("Created rooms table")
@@ -241,43 +256,54 @@ def create_room():
     data = request.get_json()
     room_name = data.get('room_name', '').strip()
     is_private = int(data.get('is_private', 0))
+    password = data.get('password', '').strip() if is_private else None
     token = request.headers.get('Authorization')
 
-    if not room_name or not token:
+    if not room_name or not token or (is_private and not password):
         return jsonify({'error': "invalid fields received"}), 400
-    
+
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        c.execute('SELECT username from users WHERE token=?', (token,))
-        user = c.fetchone()
 
+        # validate token
+        c.execute('SELECT username FROM users WHERE token=?', (token,))
+        user = c.fetchone()
         if not user:
             return jsonify({'error': "unauthorized"}), 401
-        
-        # Ensure room_name is a single string
+
+        # ensure name is a clean string
         if isinstance(room_name, (list, tuple)):
-            room_name = room_name[0]  # Take the first element if it's a list
+            room_name = room_name[0]
         elif not isinstance(room_name, str):
             return jsonify({'error': "room_name must be a string"}), 400
 
+        # check if room exists
         c.execute('SELECT id FROM rooms WHERE name=?', (room_name,))
         if c.fetchone():
             return jsonify({'error': "room already exists"}), 400
-        
-        # Create room
-        c.execute('INSERT INTO rooms (name, is_private) VALUES (?, ?)', (room_name, is_private))
+
+        # hash pw if private
+        pw_hash = hash_pw(password) if is_private else None
+
+        # create room
+        c.execute('''
+            INSERT INTO rooms (name, is_private, password_hash)
+            VALUES (?, ?, ?)
+        ''', (room_name, is_private, pw_hash))
         room_id = c.lastrowid
 
-        # Add creator to members
+        # add creator to members
         c.execute('INSERT INTO room_members (room_id, username) VALUES (?, ?)', (room_id, user[0]))
         conn.commit()
-    
+
     return jsonify({'message': f'room "{room_name}" created', 'room_id': room_id}), 201
+
 
 @app.route('/api/join_room', methods=['POST'])
 def join_room():
     data = request.get_json()
-    room_name = data.get('name')
+    room_name = data.get('name', '').strip()
+    password = data.get('password', '').strip()
     token = request.headers.get('Authorization')
 
     if not room_name or not token:
@@ -285,34 +311,39 @@ def join_room():
 
     with sqlite3.connect(DB_FILE) as conn:
         c = conn.cursor()
-        # verify token and get username
+
+        # validate token
         c.execute('SELECT username FROM users WHERE token=?', (token,))
         user = c.fetchone()
         if not user:
             return jsonify({'error': 'unauthorized'}), 401
 
-        # find room
-        c.execute('SELECT id, is_private FROM rooms WHERE name=?', (room_name,))
+        # fetch room + pw hash
+        c.execute('SELECT id, is_private, password_hash FROM rooms WHERE name=?', (room_name,))
         room = c.fetchone()
         if not room:
             return jsonify({'error': 'room not found'}), 404
 
-        room_id, is_private = room
+        room_id, is_private, stored_hash = room
 
-        # if private, reject for now or add invite logic later
+        # check password if private
         if is_private:
-            return jsonify({'error': 'private room — invite only for now'}), 403
+            if not password:
+                return jsonify({'error': 'password required'}), 403
+            if stored_hash != hash_pw(password):
+                return jsonify({'error': 'wrong password'}), 403
 
-        # check if already a member
+        # check if already member
         c.execute('SELECT id FROM room_members WHERE room_id=? AND username=?', (room_id, user[0]))
         if c.fetchone():
             return jsonify({'error': 'already in room'}), 400
 
-        # join room
+        # join
         c.execute('INSERT INTO room_members (room_id, username) VALUES (?, ?)', (room_id, user[0]))
         conn.commit()
 
     return jsonify({'message': f'{user[0]} joined room "{room_name}"'}), 200
+
 
 @app.route('/api/send_room_message', methods=['POST'])
 def send_room_message():
