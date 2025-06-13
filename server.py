@@ -298,6 +298,7 @@ def create_room():
 
     return jsonify({'message': f'room "{room_name}" created', 'room_id': room_id}), 201
 
+# took help from deepseek because private room switching wasn't working
 
 @app.route('/api/join_room', methods=['POST'])
 def join_room():
@@ -326,6 +327,11 @@ def join_room():
 
         room_id, is_private, stored_hash = room
 
+        # check if already member (remove this check to allow re-joining)
+        # c.execute('SELECT id FROM room_members WHERE room_id=? AND username=?', (room_id, user[0]))
+        # if c.fetchone():
+        #     return jsonify({'error': 'already in room'}), 400
+
         # check password if private
         if is_private:
             if not password:
@@ -333,17 +339,19 @@ def join_room():
             if stored_hash != hash_pw(password):
                 return jsonify({'error': 'wrong password'}), 403
 
-        # check if already member
-        c.execute('SELECT id FROM room_members WHERE room_id=? AND username=?', (room_id, user[0]))
-        if c.fetchone():
-            return jsonify({'error': 'already in room'}), 400
-
-        # join
-        c.execute('INSERT INTO room_members (room_id, username) VALUES (?, ?)', (room_id, user[0]))
+        # Add or update membership
+        c.execute('''
+            INSERT OR REPLACE INTO room_members (room_id, username, joined_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+        ''', (room_id, user[0]))
+        
         conn.commit()
 
-    return jsonify({'message': f'{user[0]} joined room "{room_name}"'}), 200
-
+    return jsonify({
+        'message': f'{user[0]} joined room "{room_name}"',
+        'room_id': room_id,
+        'room_name': room_name
+    }), 200
 
 @app.route('/api/send_room_message', methods=['POST'])
 def send_room_message():
