@@ -26,6 +26,21 @@ def migrate_existing_users():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     
+    # Ensure all columns exist in user_profile
+    try:
+        c.execute('ALTER TABLE user_profile ADD COLUMN upvotes INTEGER DEFAULT 0')
+        print("Added upvotes column to user_profile ✅")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" not in str(e):
+            print(f"Error adding upvotes to user_profile: {str(e)}")
+
+    try:
+        c.execute('ALTER TABLE user_profile ADD COLUMN downvotes INTEGER DEFAULT 0')
+        print("Added downvotes column to user_profile ✅")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" not in str(e):
+            print(f"Error adding downvotes to user_profile: {str(e)}")
+
     # Get all existing users
     c.execute('SELECT username FROM users')
     users = c.fetchall()
@@ -67,36 +82,14 @@ def migrate_existing_users():
     conn.close()
 
 
-
 # init db
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
 
-    try:
-        # Try to add columns if they don't exist
-        c.execute('ALTER TABLE posts ADD COLUMN upvotes INTEGER DEFAULT 0')
-        print("Added upvotes column ✅")
-    except sqlite3.OperationalError as e:
-        if "duplicate column name" in str(e):
-            print("upvotes column already exists")
-        else:
-            raise
-
-    try:
-        c.execute('ALTER TABLE posts ADD COLUMN downvotes INTEGER DEFAULT 0')
-        print("Added downvotes column ✅")
-    except sqlite3.OperationalError as e:
-        if "duplicate column name" in str(e):
-            print("downvotes column already exists")
-        else:
-            raise
-
-    
-    # Check if 'users' table exists
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
-    if not c.fetchone():
-        c.execute('''CREATE TABLE users(
+    # Create tables if they don't exist (without failing if they do)
+    tables = {
+        'users': '''CREATE TABLE IF NOT EXISTS users(
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     username TEXT UNIQUE NOT NULL,
                     email TEXT UNIQUE NOT NULL,
@@ -105,38 +98,23 @@ def init_db():
                     password TEXT NOT NULL,
                     token TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                  )''')
-        print("Created users table")
-    
-    # Check if 'rooms' table exists
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='rooms'")
-    if not c.fetchone():
-        c.execute('''CREATE TABLE rooms (
+                  )''',
+        'rooms': '''CREATE TABLE IF NOT EXISTS rooms (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT UNIQUE NOT NULL,
                     is_private INTEGER DEFAULT 0,
                     password_hash TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                  )''')
-        print("Created rooms table")
-    
-    # Check if 'room_members' table exists
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='room_members'")
-    if not c.fetchone():
-        c.execute('''CREATE TABLE room_members (
+                  )''',
+        'room_members': '''CREATE TABLE IF NOT EXISTS room_members (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     room_id INTEGER NOT NULL,
                     username TEXT NOT NULL,
                     joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY(room_id) REFERENCES rooms(id),
                     FOREIGN KEY(username) REFERENCES users(username)
-                  )''')
-        print("Created room_members table")
-
-    # Check if 'inbox messages' table exists 
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='inbox_messages'")
-    if not c.fetchone():
-        c.execute('''CREATE TABLE inbox_messages(
+                  )''',
+        'inbox_messages': '''CREATE TABLE IF NOT EXISTS inbox_messages(
                   id INTEGER PRIMARY KEY AUTOINCREMENT,
                   sender TEXT NOT NULL,
                   recipient TEXT NOT NULL,
@@ -144,13 +122,8 @@ def init_db():
                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                   FOREIGN KEY(sender) REFERENCES users(username),
                   FOREIGN KEY(recipient) REFERENCES users(username)
-                  )''')
-        print("create inbox messages table")
-
-    # user profile features table : followers, following , posts and overall reaction (up/down vote)
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_profile'")
-    if not c.fetchone():
-        c.execute('''CREATE TABLE user_profile (
+                  )''',
+        'user_profile': '''CREATE TABLE IF NOT EXISTS user_profile (
                   id INTEGER PRIMARY KEY AUTOINCREMENT,
                   username TEXT UNIQUE NOT NULL,
                   followers INTEGER DEFAULT 0,
@@ -159,14 +132,8 @@ def init_db():
                   upvotes INTEGER DEFAULT 0,
                   downvotes INTEGER DEFAULT 0,
                   FOREIGN KEY(username) REFERENCES users(username)
-                  )''')
-        print("created user_profile table")
-    
-    # posts table for user posts
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='posts'")
-    if not c.fetchone():
-        # In the init_db() function, modify the posts table creation:
-        c.execute('''CREATE TABLE posts (
+                  )''',
+        'posts': '''CREATE TABLE IF NOT EXISTS posts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL,
                 content TEXT NOT NULL,
@@ -174,14 +141,8 @@ def init_db():
                 upvotes INTEGER DEFAULT 0,
                 downvotes INTEGER DEFAULT 0,
                 FOREIGN KEY(username) REFERENCES users(username)
-                )''')
-        print("created posts table")
-
-    # post votes for counting
-
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='post_votes'")
-    if not c.fetchone():
-        c.execute('''CREATE TABLE post_votes (
+                )''',
+        'post_votes': '''CREATE TABLE IF NOT EXISTS post_votes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 post_id INTEGER NOT NULL,
                 username TEXT NOT NULL,
@@ -190,13 +151,8 @@ def init_db():
                 FOREIGN KEY(post_id) REFERENCES posts(id),
                 FOREIGN KEY(username) REFERENCES users(username),
                 UNIQUE(post_id, username)
-                )''')
-        print("created post_votes table")
-
-        # Check if 'following' table exists
-    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='following'")
-    if not c.fetchone():
-        c.execute('''CREATE TABLE following (
+                )''',
+        'following': '''CREATE TABLE IF NOT EXISTS following (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 follower TEXT NOT NULL,
                 following TEXT NOT NULL,
@@ -204,11 +160,33 @@ def init_db():
                 FOREIGN KEY(follower) REFERENCES users(username),
                 FOREIGN KEY(following) REFERENCES users(username),
                 UNIQUE(follower, following)
-                )''')
-        print("Created following table")
+                )'''
+    }
 
-    
-    
+    # Create all tables
+    for table_name, create_stmt in tables.items():
+        c.execute(create_stmt)
+        print(f"Ensured {table_name} table exists")
+
+    # Now safely add columns if they don't exist
+    try:
+        c.execute('ALTER TABLE posts ADD COLUMN upvotes INTEGER DEFAULT 0')
+        print("Added upvotes column to posts table ✅")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e):
+            print("upvotes column already exists in posts table")
+        else:
+            print(f"Error adding upvotes column: {str(e)}")
+
+    try:
+        c.execute('ALTER TABLE posts ADD COLUMN downvotes INTEGER DEFAULT 0')
+        print("Added downvotes column to posts table ✅")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e):
+            print("downvotes column already exists in posts table")
+        else:
+            print(f"Error adding downvotes column: {str(e)}")
+
     conn.commit()
     conn.close()
     print("Database initialization completed")
