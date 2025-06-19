@@ -27,11 +27,21 @@ def init_db():
     c = conn.cursor()
 
     try:
-        c.execute('ALTER TABLE rooms ADD COLUMN password_hash TEXT')
-        print("Column added ✅")
+        # Try to add columns if they don't exist
+        c.execute('ALTER TABLE posts ADD COLUMN upvotes INTEGER DEFAULT 0')
+        print("Added upvotes column ✅")
     except sqlite3.OperationalError as e:
         if "duplicate column name" in str(e):
-            print("password_hash column already exists")
+            print("upvotes column already exists")
+        else:
+            raise
+
+    try:
+        c.execute('ALTER TABLE posts ADD COLUMN downvotes INTEGER DEFAULT 0')
+        print("Added downvotes column ✅")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e):
+            print("downvotes column already exists")
         else:
             raise
 
@@ -89,6 +99,68 @@ def init_db():
                   FOREIGN KEY(recipient) REFERENCES users(username)
                   )''')
         print("create inbox messages table")
+
+    # user profile features table : followers, following , posts and overall reaction (up/down vote)
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='user_profile'")
+    if not c.fetchone():
+        c.execute('''CREATE TABLE user_profile (
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  username TEXT UNIQUE NOT NULL,
+                  followers INTEGER DEFAULT 0,
+                  following INTEGER DEFAULT 0,
+                  posts INTEGER DEFAULT 0,
+                  upvotes INTEGER DEFAULT 0,
+                  downvotes INTEGER DEFAULT 0,
+                  FOREIGN KEY(username) REFERENCES users(username)
+                  )''')
+        print("created user_profile table")
+    
+    # posts table for user posts
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='posts'")
+    if not c.fetchone():
+        # In the init_db() function, modify the posts table creation:
+        c.execute('''CREATE TABLE posts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                upvotes INTEGER DEFAULT 0,
+                downvotes INTEGER DEFAULT 0,
+                FOREIGN KEY(username) REFERENCES users(username)
+                )''')
+        print("created posts table")
+
+    # post votes for counting
+
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='post_votes'")
+    if not c.fetchone():
+        c.execute('''CREATE TABLE post_votes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                post_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                vote_type TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(post_id) REFERENCES posts(id),
+                FOREIGN KEY(username) REFERENCES users(username),
+                UNIQUE(post_id, username)
+                )''')
+        print("created post_votes table")
+
+        # Check if 'following' table exists
+    c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='following'")
+    if not c.fetchone():
+        c.execute('''CREATE TABLE following (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                follower TEXT NOT NULL,
+                following TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(follower) REFERENCES users(username),
+                FOREIGN KEY(following) REFERENCES users(username),
+                UNIQUE(follower, following)
+                )''')
+        print("Created following table")
+
+    
     
     conn.commit()
     conn.close()
@@ -105,7 +177,6 @@ def register():
     description = data.get('description') or ''
     password = data.get('password', '')
 
-
     if not username or not email or not password:
         return jsonify({'error':"I can't see a single field you filled"}),400
     
@@ -116,20 +187,25 @@ def register():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
 
-
     # existing checking
     c.execute('SELECT * FROM users WHERE username=? OR email=?',(username,email))
     if c.fetchone():
         conn.close()
         return jsonify({'error':" the user already exists"}),400
     
-    # i hash da password
+    # hash password
     hashed_pw = generate_password_hash(password)
 
     c.execute('''
     INSERT INTO users (username,email,avatar_url,description,password)
               VALUES (?,?,?,?,?)             
 ''',(username,email,avatar_url,description,hashed_pw))
+    
+    # Initialize all stats to 0
+    c.execute('''
+    INSERT INTO user_profile (username, followers, following, posts, upvotes, downvotes)
+    VALUES (?, 0, 0, 0, 0, 0)
+    ''', (username,))
     
     conn.commit()
     conn.close()
@@ -231,25 +307,7 @@ def user_count():
 
 # post 0.0.3 additions
 
-@app.route('/api/user/<username>',methods=['GET'])
-def get_user(username):
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute('SELECT * FROM users WHERE username=?',(username,))
-    row = c.fetchone()
-    conn.close()
 
-    if not row:
-        return jsonify({'error':'user not found'}),404
-    
-    user_data = {
-        'username': row[1],
-        'avatar_url':row[3],
-        'description':row[4],
-        'created_at':row[6]
-    }
-
-    return jsonify(user_data),200
 
 @app.route('/api/create_room', methods=['POST'])
 def create_room():
@@ -684,7 +742,282 @@ def upload_file():
         return jsonify({
             'error': f'Internal server error: {str(e)}'
         }), 500
+    
 
+# post 0.0.4 additions to shift to 0.0.5 , now adding profile and posts ; to add in 0.0.6 : fyp
+
+
+@app.route('/api/create_post',methods=['POST'])
+def create_post():
+    data = request.get_json()
+    token = request.headers.get('Authorization')
+    content = data.get('content','')
+
+    if not token:
+        return jsonify({'error':'invalid token , please re-login'}),401
+    
+    if not content:
+        return jsonify({'error':'nothing to post'}),400
+    
+    if len(content) > 512:
+        return jsonify({'error':'post content cannot exceed 512 characters'}),400
+    
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT username FROM users WHERE token=?',(token,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error':'unauthorized'}),401
+    username = user[0]
+    
+    # Remove the duplicate INSERT statement
+    c.execute('INSERT INTO posts (username,content) VALUES (?,?)',(username,content))
+    
+    # Update user's post count
+    c.execute('UPDATE user_profile SET posts = posts + 1 WHERE username=?', (username,))
+
+    conn.commit()
+    post_id = c.lastrowid
+    conn.close()
+    return jsonify({'message':'post created'}),201
+
+@app.route('/api/user/<username>',methods=['GET'])
+def get_user(username):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    
+    # Get basic user info
+    c.execute('SELECT * FROM users WHERE username=?', (username,))
+    row = c.fetchone()
+    
+    if not row:
+        conn.close()
+        return jsonify({'error':'user not found'}),404
+    
+    # Get profile stats from user_profile table
+    c.execute('SELECT followers, following, posts, upvotes, downvotes FROM user_profile WHERE username=?', (username,))
+    profile_stats = c.fetchone()
+    
+    conn.close()
+    
+    user_data = {
+        'username': row[1],
+        'avatar_url': row[3],
+        'description': row[4],
+        'created_at': row[6],
+        'stats': {
+            'followers': profile_stats[0] if profile_stats else 0,
+            'following': profile_stats[1] if profile_stats else 0,
+            'posts': profile_stats[2] if profile_stats else 0,
+            'upvotes': profile_stats[3] if profile_stats else 0,
+            'downvotes': profile_stats[4] if profile_stats else 0
+        }
+    }
+
+    return jsonify(user_data),200
+
+@app.route('/api/get_posts/<username>',methods=['GET'])
+def get_posts(username):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT id, username, content, created_at, upvotes, downvotes FROM posts WHERE username=? ORDER BY created_at DESC',(username,))
+    rows = c.fetchall()
+    conn.close()
+    
+    posts = []
+    for row in rows:
+        post_data = {
+            'id': row[0],
+            'username': row[1],
+            'content': row[2],
+            'created_at': row[3],
+            'upvotes': row[4],
+            'downvotes': row[5]
+        }
+        posts.append(post_data)
+    
+    return jsonify({'posts': posts}), 200
+
+@app.route('/api/vote_post',methods=['POST'])
+def vote_post():
+    data = request.get_json()
+    token = request.headers.get('Authorization')
+    post_id = data.get('post_id')
+    vote_type = data.get('vote_type')
+
+    if not token:
+        return jsonify({'error':'login to vote'}),401
+    if not post_id or not vote_type:
+        return jsonify({'error':'missing post_id or vote_type'}),400
+    
+    if vote_type not in ['up','down']:
+        return jsonify({'error':'you can only upvote or downvote'}),400
+    
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT username FROM users WHERE token=?',(token,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error':'unauthorized'}),401
+    username = user[0]
+    
+    # check if post exists
+    c.execute('SELECT username FROM posts WHERE id=?',(post_id,))
+    post = c.fetchone()
+    if not post:
+        conn.close()
+        return jsonify({'error':'post not found'}),404
+        
+    post_author = post[0]
+    if post_author == username:
+        conn.close()
+        return jsonify({'error':'cannot vote on your own post'}),403
+    
+    # check if user already voted (optional - prevents multiple votes)
+        # Check if user already voted
+    c.execute('SELECT vote_type FROM post_votes WHERE post_id=? AND username=?', (post_id, username))
+    existing_vote = c.fetchone()
+    
+    if existing_vote:
+        # User already voted - handle vote change
+        if existing_vote[0] == vote_type:
+            conn.close()
+            return jsonify({'error':'already voted this way'}), 400
+        else:
+            # Reverse previous vote
+            if existing_vote[0] == 'up':
+                c.execute('UPDATE posts SET upvotes = upvotes - 1 WHERE id=?', (post_id,))
+                c.execute('UPDATE user_profile SET upvotes = upvotes - 1 WHERE username=?', (post_author,))
+            else:
+                c.execute('UPDATE posts SET downvotes = downvotes - 1 WHERE id=?', (post_id,))
+                c.execute('UPDATE user_profile SET downvotes = downvotes - 1 WHERE username=?', (post_author,))
+            
+            # Update the vote record
+            c.execute('UPDATE post_votes SET vote_type=? WHERE post_id=? AND username=?', 
+                      (vote_type, post_id, username))
+    else:
+        # Record the new vote
+        c.execute('INSERT INTO post_votes (post_id, username, vote_type) VALUES (?,?,?)',
+                 (post_id, username, vote_type))
+    
+    # Update vote counts
+    if vote_type == 'up':
+        c.execute('UPDATE posts SET upvotes = upvotes + 1 WHERE id=?', (post_id,))
+        c.execute('UPDATE user_profile SET upvotes = upvotes + 1 WHERE username=?', (post_author,))
+    else:
+        c.execute('UPDATE posts SET downvotes = downvotes + 1 WHERE id=?', (post_id,))
+        c.execute('UPDATE user_profile SET downvotes = downvotes + 1 WHERE username=?', (post_author,))
+    
+    conn.commit()
+    conn.close()
+    return jsonify({'message':'vote counted'}),200
+
+# Follow/Unfollow endpoints
+@app.route('/api/follow', methods=['POST'])
+def follow_user():
+    data = request.get_json()
+    token = request.headers.get('Authorization')
+    target_username = data.get('username')
+
+    if not token or not target_username:
+        return jsonify({'error': 'missing fields'}), 400
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # Get current user
+    c.execute('SELECT username FROM users WHERE token=?', (token,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error': 'unauthorized'}), 401
+    username = user[0]
+
+    # Check if target exists
+    c.execute('SELECT username FROM users WHERE username=?', (target_username,))
+    if not c.fetchone():
+        conn.close()
+        return jsonify({'error': 'user not found'}), 404
+
+    # Check if already following
+    c.execute('SELECT * FROM following WHERE follower=? AND following=?', (username, target_username))
+    if c.fetchone():
+        conn.close()
+        return jsonify({'error': 'already following'}), 400
+
+    # Create follow relationship
+    c.execute('INSERT INTO following (follower, following) VALUES (?, ?)', (username, target_username))
+    
+    # Update follower counts
+    c.execute('UPDATE user_profile SET following = following + 1 WHERE username=?', (username,))
+    c.execute('UPDATE user_profile SET followers = followers + 1 WHERE username=?', (target_username,))
+
+    conn.commit()
+    conn.close()
+    return jsonify({'message': f'now following {target_username}'}), 200
+
+@app.route('/api/unfollow', methods=['POST'])
+def unfollow_user():
+    data = request.get_json()
+    token = request.headers.get('Authorization')
+    target_username = data.get('username')
+
+    if not token or not target_username:
+        return jsonify({'error': 'missing fields'}), 400
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # Get current user
+    c.execute('SELECT username FROM users WHERE token=?', (token,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error': 'unauthorized'}), 401
+    username = user[0]
+
+    # Remove follow relationship
+    c.execute('DELETE FROM following WHERE follower=? AND following=?', (username, target_username))
+    
+    if c.rowcount == 0:
+        conn.close()
+        return jsonify({'error': 'not following this user'}), 400
+
+    # Update follower counts
+    c.execute('UPDATE user_profile SET following = following - 1 WHERE username=?', (username,))
+    c.execute('UPDATE user_profile SET followers = followers - 1 WHERE username=?', (target_username,))
+
+    conn.commit()
+    conn.close()
+    return jsonify({'message': f'unfollowed {target_username}'}), 200
+
+@app.route('/api/check_follow', methods=['GET'])
+def check_follow():
+    token = request.headers.get('Authorization')
+    target_username = request.args.get('username')
+
+    if not token or not target_username:
+        return jsonify({'error': 'missing fields'}), 400
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    # Get current user
+    c.execute('SELECT username FROM users WHERE token=?', (token,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error': 'unauthorized'}), 401
+    username = user[0]
+
+    # Check if following
+    c.execute('SELECT * FROM following WHERE follower=? AND following=?', (username, target_username))
+    is_following = bool(c.fetchone())
+
+    conn.close()
+    return jsonify({'is_following': is_following}), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
