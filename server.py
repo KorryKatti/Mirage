@@ -21,6 +21,53 @@ def hash_pw(password: str) -> str:
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
 
+# Add this function to server.py before the init_db() call
+def migrate_existing_users():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    
+    # Get all existing users
+    c.execute('SELECT username FROM users')
+    users = c.fetchall()
+    
+    for (username,) in users:
+        # Check if user exists in user_profile
+        c.execute('SELECT 1 FROM user_profile WHERE username=?', (username,))
+        if not c.fetchone():
+            # Initialize stats for user
+            c.execute('''
+                INSERT INTO user_profile (username, followers, following, posts, upvotes, downvotes)
+                VALUES (?, 0, 0, 0, 0, 0)
+            ''', (username,))
+            
+        # Update stats based on actual data
+        # Update post count
+        c.execute('SELECT COUNT(*) FROM posts WHERE username=?', (username,))
+        post_count = c.fetchone()[0]
+        c.execute('UPDATE user_profile SET posts=? WHERE username=?', (post_count, username))
+        
+        # Update follower count
+        c.execute('SELECT COUNT(*) FROM following WHERE following=?', (username,))
+        follower_count = c.fetchone()[0]
+        c.execute('UPDATE user_profile SET followers=? WHERE username=?', (follower_count, username))
+        
+        # Update following count
+        c.execute('SELECT COUNT(*) FROM following WHERE follower=?', (username,))
+        following_count = c.fetchone()[0]
+        c.execute('UPDATE user_profile SET following=? WHERE username=?', (following_count, username))
+        
+        # Update upvotes/downvotes (sum of all votes on user's posts)
+        c.execute('SELECT SUM(upvotes), SUM(downvotes) FROM posts WHERE username=?', (username,))
+        up, down = c.fetchone()
+        up = up or 0
+        down = down or 0
+        c.execute('UPDATE user_profile SET upvotes=?, downvotes=? WHERE username=?', (up, down, username))
+    
+    conn.commit()
+    conn.close()
+
+
+
 # init db
 def init_db():
     conn = sqlite3.connect(DB_FILE)
@@ -167,6 +214,8 @@ def init_db():
     print("Database initialization completed")
 
 init_db()
+
+migrate_existing_users()
 
 @app.route('/api/register',methods=['POST'])
 def register():
@@ -1018,6 +1067,57 @@ def check_follow():
 
     conn.close()
     return jsonify({'is_following': is_following}), 200
+
+
+@app.route('/api/get_followers/<username>', methods=['GET'])
+def get_followers(username):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    
+    # Check if user exists
+    c.execute('SELECT 1 FROM users WHERE username=?', (username,))
+    if not c.fetchone():
+        conn.close()
+        return jsonify({'error': 'user not found'}), 404
+    
+    # Get followers with their avatars
+    c.execute('''
+        SELECT u.username, u.avatar_url 
+        FROM following f
+        JOIN users u ON f.follower = u.username
+        WHERE f.following = ?
+        ORDER BY f.created_at DESC
+    ''', (username,))
+    
+    followers = [{'username': row[0], 'avatar_url': row[1] or 'default.png'} for row in c.fetchall()]
+    conn.close()
+    
+    return jsonify({'followers': followers}), 200
+
+@app.route('/api/get_following/<username>', methods=['GET'])
+def get_following(username):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    
+    # Check if user exists
+    c.execute('SELECT 1 FROM users WHERE username=?', (username,))
+    if not c.fetchone():
+        conn.close()
+        return jsonify({'error': 'user not found'}), 404
+    
+    # Get following with their avatars
+    c.execute('''
+        SELECT u.username, u.avatar_url 
+        FROM following f
+        JOIN users u ON f.following = u.username
+        WHERE f.follower = ?
+        ORDER BY f.created_at DESC
+    ''', (username,))
+    
+    following = [{'username': row[0], 'avatar_url': row[1] or 'default.png'} for row in c.fetchall()]
+    conn.close()
+    
+    return jsonify({'following': following}), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
