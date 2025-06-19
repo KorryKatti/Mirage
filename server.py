@@ -462,6 +462,8 @@ def join_room():
 
 @app.route('/api/send_room_message', methods=['POST'])
 def send_room_message():
+    ping_thread = threading.Thread(target=ping_server, args=(60,), daemon=True)
+    ping_thread.start()
     data = request.get_json()
     token = request.headers.get('Authorization')
     room_id = data.get('room_id')
@@ -699,19 +701,24 @@ def inbox_count():
 import requests
 from flask_cors import cross_origin
 
+UPLOAD_URL = 'https://cpp-webserver.onrender.com/upload'
+
 def file_uploader(file):
     try:
         file.stream.seek(0)
+        headers = {
+            'User-Agent': 'Mozilla/5.0',
+            'Content-Type': 'application/octet-stream'
+        }
+
         response = requests.post(
-            'https://tmpfiles.org/api/v1/upload',
-            files={'file': (file.filename, file.stream, file.mimetype or 'application/octet-stream')},
-            headers={
-                'User-Agent': 'Mozilla/5.0'
-            }
+            UPLOAD_URL,
+            data=file.stream,
+            headers=headers
         )
         response.raise_for_status()
-        data = response.json()
-        return data.get('data', {}).get('url', '').strip()
+        return response.text.strip()  # assuming server returns the URL or file ID as plain text
+
     except requests.exceptions.HTTPError as http_err:
         raise Exception(f'HTTP Error: {http_err.response.status_code} - {http_err.response.text}')
     except requests.exceptions.ConnectionError:
@@ -720,6 +727,19 @@ def file_uploader(file):
         raise Exception('Timeout error: The file upload request took too long.')
     except Exception as err:
         raise Exception(f'Unexpected error during file upload: {str(err)}')
+    
+def ping_server(interval=60):
+    while True:
+        try:
+            res = requests.get('https://cpp-webserver.onrender.com', timeout=5)
+            print(f'Ping: {res.status_code} - {res.reason}')
+        except Exception as e:
+            print(f'Ping failed: {e}')
+        time.sleep(interval)
+
+# in a separaate thread we start the pinging
+import threading
+
 
 
 @app.route('/api/upload_file', methods=['POST'])
