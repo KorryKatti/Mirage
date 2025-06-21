@@ -11,3 +11,5 @@ websockets
 pyOpenSSL 
 flask-socketio
 flask_cors
+markdown
+bleach

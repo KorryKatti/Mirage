@@ -7,6 +7,9 @@ import uuid
 import time
 import json
 import hashlib
+import markdown
+from bleach.sanitizer import Cleaner
+
 
 app = Flask(__name__)
 CORS(app, 
@@ -159,7 +162,7 @@ def init_db():
                 FOREIGN KEY(following) REFERENCES users(username),
                 UNIQUE(follower, following)
                 )''',
-        'post_comments': '''CREATE TABLE IF NOT EXISTS post_comments (
+        'replies': '''CREATE TABLE IF NOT EXISTS replies (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 post_id INTEGER NOT NULL,
                 username TEXT NOT NULL,
@@ -825,7 +828,6 @@ def create_post():
         return jsonify({'error':'unauthorized'}),401
     username = user[0]
     
-    # Remove the duplicate INSERT statement
     c.execute('INSERT INTO posts (username,content) VALUES (?,?)',(username,content))
     
     # Update user's post count
@@ -835,6 +837,7 @@ def create_post():
     post_id = c.lastrowid
     conn.close()
     return jsonify({'message':'post created'}),201
+
 
 @app.route('/api/user/<username>',methods=['GET'])
 def get_user(username):
@@ -1167,6 +1170,41 @@ def reply_to_post():
     
     return jsonify({'message': 'reply created'}), 201
 
+@app.route('/api/get_replies/<int:post_id>', methods=['GET'])
+def get_replies(post_id):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    
+    # Check if post exists
+    c.execute('SELECT id FROM posts WHERE id=?', (post_id,))
+    if not c.fetchone():
+        conn.close()
+        return jsonify({'error': 'post not found'}), 404
+    
+    # Get replies for the post
+    c.execute('''
+        SELECT r.id, r.username, r.content, r.created_at, u.avatar_url 
+        FROM replies r
+        JOIN users u ON r.username = u.username
+        WHERE r.post_id=?
+        ORDER BY r.created_at DESC
+    ''', (post_id,))
+    
+    replies = []
+    for row in c.fetchall():
+        reply_data = {
+            'id': row[0],
+            'username': row[1],
+            'content': row[2],
+            'created_at': row[3],
+            'avatar_url': row[4] or 'default.png'
+        }
+        replies.append(reply_data)
+    
+    conn.close()
+    
+    return jsonify({'replies': replies}), 200
+
 @app.route('/api/get_post_by_id/<int:post_id>',methods=['GET'])
 def get_post_by_id(post_id):
     conn = sqlite3.connect(DB_FILE)
@@ -1187,6 +1225,26 @@ def get_post_by_id(post_id):
     }
 
     return jsonify(post_data), 200
+
+
+# Configure allowed HTML tags/attributes for Markdown
+ALLOWED_TAGS = [
+    'a', 'abbr', 'acronym', 'b', 'blockquote', 'code', 'em', 
+    'i', 'li', 'ol', 'strong', 'ul', 'p', 'br', 'img',
+    'h1', 'h2', 'h3', 'h4', 'pre'
+]
+
+ALLOWED_ATTRIBUTES = {
+    'a': ['href', 'title'],
+    'img': ['src', 'alt', 'title']
+}
+
+def safe_markdown(text):
+    """Convert markdown to sanitized HTML"""
+    html = markdown.markdown(text)
+    cleaner = Cleaner(tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRIBUTES)
+    return cleaner.clean(html)
+
 
 # TODO : add a for you page using a designed algoritm which is user independent and uses post id to fetch suggestions of post
 
