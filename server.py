@@ -20,8 +20,6 @@ DB_FILE = "db.sqlite"
 def hash_pw(password: str) -> str:
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
 
-
-# Add this function to server.py before the init_db() call
 def migrate_existing_users():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -160,6 +158,15 @@ def init_db():
                 FOREIGN KEY(follower) REFERENCES users(username),
                 FOREIGN KEY(following) REFERENCES users(username),
                 UNIQUE(follower, following)
+                )''',
+        'post_comments': '''CREATE TABLE IF NOT EXISTS post_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                post_id INTEGER NOT NULL,
+                username TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(post_id) REFERENCES posts(id),
+                FOREIGN KEY(username) REFERENCES users(username)
                 )'''
     }
 
@@ -1116,6 +1123,75 @@ def get_following(username):
     conn.close()
     
     return jsonify({'following': following}), 200
+
+@app.route('/api/reply_to_post', methods=['POST'])
+def reply_to_post():
+    data = request.get_json()
+    token = request.headers.get('Authorization')
+    post_id = data.get('post_id')
+    content = data.get('content', '')
+
+    if not token:
+        return jsonify({'error': 'invalid token, please re-login'}), 401
+    
+    if not post_id or not content:
+        return jsonify({'error': 'missing post_id or content'}), 400
+    
+    if len(content) > 512:
+        return jsonify({'error': 'reply content cannot exceed 512 characters'}), 400
+    
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('SELECT username FROM users WHERE token=?', (token,))
+    user = c.fetchone()
+    
+    if not user:
+        conn.close()
+        return jsonify({'error': 'unauthorized'}), 401
+    username = user[0]
+    
+    # Check if post exists
+    c.execute('SELECT id FROM posts WHERE id=?', (post_id,))
+    if not c.fetchone():
+        conn.close()
+        return jsonify({'error': 'post not found'}), 404
+    
+    # Insert reply into replies table
+    c.execute('INSERT INTO replies (post_id, username, content) VALUES (?, ?, ?)', (post_id, username, content))
+    
+    # Update user's reply count
+    c.execute('UPDATE user_profile SET posts = posts + 1 WHERE username=?', (username,))
+    
+    conn.commit()
+    conn.close()
+    
+    return jsonify({'message': 'reply created'}), 201
+
+@app.route('/api/get_post_by_id/<int:post_id>',methods=['GET'])
+def get_post_by_id(post_id):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+
+    c.execute('SELECT id, username, content, created_at, upvotes, downvotes FROM posts WHERE id=?', (post_id,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return jsonify({'error':'post not found'}),404
+    post_data = {
+        'id': row[0],
+        'username': row[1],
+        'content': row[2],
+        'created_at': row[3],
+        'upvotes': row[4],
+        'downvotes': row[5]
+    }
+
+    return jsonify(post_data), 200
+
+# TODO : add a for you page using a designed algoritm which is user independent and uses post id to fetch suggestions of post
+
+
+
 
 if __name__ == '__main__':
     app.run(debug=True)
