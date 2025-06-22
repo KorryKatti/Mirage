@@ -1351,7 +1351,9 @@ def fyp():
         'trending_topics': trending_topics
     }), 200
 
-
+# upto now 0.0.6 has been released , will continue ahead later
+# planned things : profile editing option , deletion of post option and building a inbuilt bot to send system messages to user in inbox/notifications
+# later
 
 
 if __name__ == '__main__':
