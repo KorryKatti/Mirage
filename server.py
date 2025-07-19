@@ -380,6 +380,13 @@ def create_room():
         # hash pw if private
         pw_hash = hash_pw(password) if is_private else None
 
+        # don't allow creationn of more thann n5 public rooms , if attempt at making send a message
+        if not is_private:
+            c.execute('SELECT COUNT(*) FROM rooms WHERE is_private=0')
+            public_room_count = c.fetchone()[0]
+            if public_room_count >= 5:
+                return jsonify({'error': 'maximum number of public rooms reached (5). Please create a private room to continue the conversation with the people you would like to'}), 400
+
         # create room
         c.execute('''
             INSERT INTO rooms (name, is_private, password_hash)
@@ -1355,6 +1362,59 @@ def fyp():
 # planned things : profile editing option , deletion of post option and building a inbuilt bot to send system messages to user in inbox/notifications
 # later
 
+# return room members
+@app.route('/api/room_members/<int:room_id>', methods=['GET'])
+def get_room_members(room_id):
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'error': 'invalid token, please re-login'}), 401
+    
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute('SELECT username FROM users WHERE token=?', (token,))
+        user = c.fetchone()
+        if not user:
+            return jsonify({'error': 'unauthorized'}), 401
+        
+        c.execute('SELECT username FROM room_members WHERE room_id=?', (room_id,))
+        members = c.fetchall()
+        if not members:
+            return jsonify({'error': 'no members in this room'}), 404
+        
+        members_list = [m[0] for m in members]
+    
+    return jsonify({'members': members_list}), 200
+
+# return user joined private rooms to user too so that they don't have  to remmeber password
+@app.route('/api/user_rooms', methods=['GET'])
+def user_rooms():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'error':'invalid token, please re-login'}), 401
+    with sqlite3.connect(DB_FILE) as conn:
+        c = conn.cursor()
+        c.execute('SELECT username FROM users WHERE token=?', (token,))
+        user = c.fetchone()
+        if not user:
+            return jsonify({'error': 'unauthorized'}), 401
+        
+        username = user[0]
+        
+        # Get all rooms the user is a member of
+        c.execute('SELECT r.id, r.name, r.is_private FROM rooms r JOIN room_members rm ON r.id = rm.room_id WHERE rm.username=?', (username,))
+        rooms = c.fetchall()
+        
+        room_list = []
+        for room in rooms:
+            room_data = {
+                'room_id': room[0],
+                'name': room[1],
+                'is_private': room[2]
+            }
+            room_list.append(room_data)
+        return jsonify({'rooms': room_list}), 200
+    
+                                
 
 if __name__ == '__main__':
     app.run(debug=True)
