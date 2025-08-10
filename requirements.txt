@@ -8,8 +8,9 @@ python-multipart
 bcrypt
 requests
 websockets
-pyOpenSSL 
+pyOpenSSL
 flask-socketio
 flask_cors
 markdown
 bleach
+matplotlib
