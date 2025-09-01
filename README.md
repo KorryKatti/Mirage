@@ -704,6 +704,21 @@ Error responses include a JSON object with an `error` field describing the issue
 
 ---
 
+## Database Schema
+The application uses an SQLite database (`db.sqlite`) with the following tables:
+
+- **users**: Stores user account information, including credentials and profile details.
+- **rooms**: Defines chat rooms, including their name, privacy status, and password (if private).
+- **room_members**: Tracks which users are members of which rooms.
+- **inbox_messages**: Contains private messages sent between users.
+- **user_profile**: Stores user statistics like followers, post counts, and vote scores.
+- **posts**: Holds all user-created posts.
+- **post_votes**: Records upvotes and downvotes on posts.
+- **following**: Manages the follower/following relationships between users.
+- **replies**: Stores replies to posts.
+
+---
+
 ## Notes
 
 - All timestamps are in ISO format
