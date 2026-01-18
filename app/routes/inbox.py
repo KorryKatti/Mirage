@@ -1,6 +1,6 @@
 
 from flask import Blueprint, request, jsonify
-import sqlite3
+from typing import Any
 from app.db import get_db_connection
 
 inbox_bp = Blueprint('inbox', __name__)
@@ -34,9 +34,11 @@ def send_inbox_message():
         return jsonify({'erorr':'recipient not found'}),404
     recipient = recipient[0]
     # inserting messages into the table
-    c.execute('INSERT INTO inbox_messages (sender,recipient,message) VALUES (?,?,?)',(sender,recipient,message))
-    conn.commit()
-    conn.close()
+    try:
+        c.execute('INSERT INTO inbox_messages (sender,recipient,message) VALUES (?,?,?)',(sender,recipient,message))
+        conn.commit()
+    finally:
+        conn.close()
     return jsonify({'message':'message sent'}),200
 
 
@@ -68,7 +70,7 @@ def inbox():
     messages_rows = c.fetchall()
     conn.close()
     
-    inbox_data = []
+    inbox_data: list[dict[str, Any]] = []
     for msg in messages_rows:
         inbox_data.append({
             'id': msg[0],
@@ -113,9 +115,11 @@ def delete_inbox_message():
         return jsonify({'error': 'message not found or unauthorized access'}), 404
     
     # Delete the message
-    c.execute('DELETE FROM inbox_messages WHERE id=?', (message_id,))
-    conn.commit()
-    conn.close()
+    try:
+        c.execute('DELETE FROM inbox_messages WHERE id=?', (message_id,))
+        conn.commit()
+    finally:
+        conn.close()
 
     return jsonify({'message': 'message deleted successfully'}), 200
 
