@@ -63,9 +63,9 @@ def inbox():
                u.avatar_url AS sender_avatar
         FROM inbox_messages im
         LEFT JOIN users u ON im.sender = u.username
-        WHERE im.recipient=?
+        WHERE im.recipient=? OR im.sender=?
         ORDER BY im.created_at DESC
-    ''', (username,))
+    ''', (username, username))
     
     messages_rows = c.fetchall()
     conn.close()
@@ -106,8 +106,8 @@ def delete_inbox_message():
     
     username = user[0]
     
-    # Check if the message exists and belongs to the user
-    c.execute('SELECT * FROM inbox_messages WHERE id=? AND recipient=?', (message_id, username))
+    # Check if the message exists and belongs to the user (either as sender or recipient)
+    c.execute('SELECT * FROM inbox_messages WHERE id=? AND (recipient=? OR sender=?)', (message_id, username, username))
     msg = c.fetchone()
     
     if not msg:
@@ -141,7 +141,7 @@ def inbox_count():
     
     username = user[0]
     
-    c.execute('SELECT COUNT(*) FROM inbox_messages WHERE recipient=?', (username,))
+    c.execute('SELECT COUNT(*) FROM inbox_messages WHERE recipient=? OR sender=?', (username, username))
     count = c.fetchone()[0]
     
     conn.close()
