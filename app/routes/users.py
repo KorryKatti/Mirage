@@ -1,9 +1,79 @@
 
 from flask import Blueprint, request, jsonify
+from werkzeug.security import generate_password_hash
 import sqlite3
 from app.db import get_db_connection
 
 users_bp = Blueprint('users', __name__)
+
+@users_bp.route('/api/user/settings', methods=['POST'])
+def update_settings():
+    token = request.headers.get('Authorization')
+    if not token:
+        return jsonify({'error': 'unauthorized'}), 401
+
+    data = request.get_json()
+    email = data.get('email')
+    avatar_url = data.get('avatar_url')
+    description = data.get('description')
+    password = data.get('password')
+    custom_css = data.get('custom_css')
+    background_image = data.get('background_image')
+
+    conn = get_db_connection()
+    c = conn.cursor()
+
+    # Get user by token
+    c.execute('SELECT username FROM users WHERE token=?', (token,))
+    user = c.fetchone()
+    if not user:
+        conn.close()
+        return jsonify({'error': 'unauthorized'}), 401
+    
+    username = user[0]
+
+    # Dynamically build update query
+    updates = []
+    params = []
+
+    if email:
+        updates.append("email = ?")
+        params.append(email)
+    if avatar_url:
+        updates.append("avatar_url = ?")
+        params.append(avatar_url)
+    if description is not None:
+        updates.append("description = ?")
+        params.append(description)
+    if password:
+        updates.append("password = ?")
+        params.append(generate_password_hash(password))
+    if custom_css is not None:
+        updates.append("custom_css = ?")
+        params.append(custom_css)
+    if background_image is not None:
+        updates.append("background_image = ?")
+        params.append(background_image)
+
+    if not updates:
+        conn.close()
+        return jsonify({'error': 'no fields to update'}), 400
+
+    query = f"UPDATE users SET {', '.join(updates)} WHERE username = ?"
+    params.append(username)
+
+    try:
+        c.execute(query, tuple(params))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        return jsonify({'error': 'email already taken'}), 400
+    except Exception as e:
+        conn.close()
+        return jsonify({'error': str(e)}), 500
+
+    conn.close()
+    return jsonify({'message': 'settings updated successfully'}), 200
 
 @users_bp.route('/api/user/<username>',methods=['GET'])
 def get_user(username):
@@ -28,7 +98,9 @@ def get_user(username):
         'username': row[1],
         'avatar_url': row[3],
         'description': row[4],
-        'created_at': row[6],
+        'created_at': row[7],
+        'custom_css': row[8],
+        'background_image': row[9],
         'stats': {
             'followers': profile_stats[0] if profile_stats else 0,
             'following': profile_stats[1] if profile_stats else 0,

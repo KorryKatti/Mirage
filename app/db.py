@@ -82,7 +82,9 @@ def init_db():
                     description TEXT,
                     password TEXT NOT NULL,
                     token TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    custom_css TEXT,
+                    background_image TEXT
                   )''',
         'rooms': '''CREATE TABLE IF NOT EXISTS rooms (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -163,6 +165,24 @@ def init_db():
         print(f"Ensured {table_name} table exists")
 
     # Now safely add columns if they don't exist
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN custom_css TEXT')
+        print("Added custom_css column to users table ✅")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e):
+            print("custom_css column already exists in users table")
+        else:
+            print(f"Error adding custom_css column: {str(e)}")
+
+    try:
+        c.execute('ALTER TABLE users ADD COLUMN background_image TEXT')
+        print("Added background_image column to users table ✅")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e):
+            print("background_image column already exists in users table")
+        else:
+            print(f"Error adding background_image column: {str(e)}")
+
     try:
         c.execute('ALTER TABLE posts ADD COLUMN upvotes INTEGER DEFAULT 0')
         print("Added upvotes column to posts table ✅")
